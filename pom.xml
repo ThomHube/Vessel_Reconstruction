@@ -87,7 +87,11 @@
     </ciManagement>
 
     <properties>
-        <maven.compiler.release>17</maven.compiler.release>
+        <!--
+            Fiji currently runs Java 8. Compiling with release 8 produces
+            class-file version 52.0, which is compatible with that runtime.
+        -->
+        <maven.compiler.release>8</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <package-name>vesselreconstruction.ellipse</package-name>
@@ -118,16 +122,13 @@
     </dependencies>
 
     <build>
-        <finalName>
-            VesselReconstructionEllipse-0.1.0-SNAPSHOT
-        </finalName>
+        <finalName>VesselReconstructionEllipse-0.1.0-SNAPSHOT</finalName>
 
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven.surefire.version}</version>
-
                 <configuration>
                     <useModulePath>false</useModulePath>
                 </configuration>

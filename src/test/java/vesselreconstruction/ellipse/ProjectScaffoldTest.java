@@ -131,7 +131,7 @@ class ProjectScaffoldTest {
                     .collect(Collectors.toList());
 
             for (Path javaFile : javaFiles) {
-                String source = Files.readString(javaFile, StandardCharsets.UTF_8);
+                String source = readUtf8(javaFile);
                 for (String name : forbidden) {
                     if (source.contains(name)) {
                         hits.add(root.relativize(javaFile) + " contains " + name);
@@ -156,7 +156,11 @@ class ProjectScaffoldTest {
 
     private static String readPluginsConfig() throws IOException {
         Path config = projectRoot().resolve("src/main/resources/plugins.config");
-        return Files.readString(config, StandardCharsets.UTF_8);
+        return readUtf8(config);
+    }
+
+    private static String readUtf8(final Path path) throws IOException {
+        return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
     }
 
     private static boolean isIgnoredPath(Path root, Path path) {
