@@ -5,8 +5,26 @@
 - **Algorithm:** Robust Ellipse Reconstruction
 - **Project directory:** `/home/thomas/IdeaProjects/minimal-ij1-plugin-ellipse`
 - **Artifact:** `VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar`
-- **Status:** Independent clean scaffold; diagnostic-only; no ellipse fitting or reconstruction yet
+- **Status:** Free-ellipse mathematical model and deterministic fitter implemented; image processing, outlier exclusion, and reconstruction remain unimplemented
 - **Independence:** This repository does not contain the legacy contour bridgepoint algorithm
+
+## Mathematical free-ellipse stage
+
+Implemented:
+
+- immutable free-ellipse model (`EllipseModel`)
+- deterministic free-ellipse fitter (`FreeEllipseFitter`)
+- immutable fit diagnostics (`EllipseFitResult`)
+
+The fitter recovers center, two independent axes, and rotation. It minimizes
+normalized radial residuals. It does not optimize circularity and does not
+force the ellipse toward a circle.
+
+Not yet implemented:
+
+- image access / lumen detection / boundary tracing
+- inward-outlier exclusion and robust refitting
+- proposed fill preview and production reconstruction
 
 ## Fixed classifier mapping
 

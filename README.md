@@ -21,11 +21,20 @@ Trainable Weka Segmentation class values cannot be renamed. This project uses:
 
 ## Current state
 
-Diagnostic-only scaffold. The plugin logs the fixed classifier mapping and shows a confirmation dialog. It does not require an active image and does not inspect or modify any image.
+The plugin entry point remains diagnostic-only: it logs the fixed classifier mapping and shows a confirmation dialog. It does not require an active image and does not inspect or modify any image.
 
-- Ellipse fitting is not implemented yet.
-- Reconstruction is not applied.
-- Production pixel modification remains disabled until explicitly approved.
+Mathematical free-ellipse fitting is implemented independently of image processing:
+
+- `EllipseModel` represents a free ellipse (center, two independent axes, rotation)
+- `FreeEllipseFitter` deterministically fits ellipse support points by minimizing mean squared normalized radial residuals
+- Circularity is not optimized and the ellipse is not forced to become a circle
+
+Still unimplemented:
+
+- image access, lumen detection, and boundary tracing
+- inward-outlier exclusion and robust iteration
+- pixel filling / reconstruction
+- Fiji visualization
 
 ## Planned workflow
 
