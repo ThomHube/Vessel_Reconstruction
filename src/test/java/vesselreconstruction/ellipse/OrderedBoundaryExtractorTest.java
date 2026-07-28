@@ -6,6 +6,7 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.geom.Point2D;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -284,6 +285,119 @@ class OrderedBoundaryExtractorTest {
     @Test
     void diagonalHighDegreeJunctionRejected() {
         // 8-connected diagonal pinch that creates an ambiguous lattice vertex.
+        final List<Point> pixels = diagonalNwSePixels();
+        final AmbiguousBoundaryVertexException ex = assertThrows(
+                AmbiguousBoundaryVertexException.class,
+                () -> extractor.extractAllLoops(pixels));
+        assertTrue(ex.getMessage().startsWith("AMBIGUOUS_BOUNDARY_VERTEX"));
+        final AmbiguousBoundaryVertexDiagnostic d = ex.getDiagnostic();
+        assertEquals(2, d.getVertexX());
+        assertEquals(1, d.getVertexY());
+        assertEquals(2, d.getIncomingEdge().getEndX());
+        assertEquals(1, d.getIncomingEdge().getEndY());
+        assertTrue(d.getUnusedOutgoingEdges().size() >= 2);
+        assertEquals(0, d.getUsedOutgoingEdges().size());
+        assertEquals(3, d.getUsedEdgeCountBeforeFailure());
+        assertEquals(3, d.getTraversalStep());
+        assertEquals(16, d.getTotalExposedEdgeCount());
+        assertEquals(AmbiguousBoundaryVertexDiagnostic.DIAGONAL_NW_SE,
+                d.getLocalOccupancyPattern());
+        assertTrue(d.isNorthWestSelected());
+        assertTrue(d.isSouthEastSelected());
+        assertFalse(d.isNorthEastSelected());
+        assertFalse(d.isSouthWestSelected());
+        assertEquals(
+                Arrays.asList(
+                        DirectedPixelEdge.Direction.WEST.name(),
+                        DirectedPixelEdge.Direction.EAST.name()),
+                d.getUnusedOutgoingDirections());
+        assertEquals(
+                Arrays.asList(
+                        AmbiguousBoundaryVertexDiagnostic.RIGHT_TURN,
+                        AmbiguousBoundaryVertexDiagnostic.LEFT_TURN),
+                d.getCandidateTurnRelations());
+    }
+
+    @Test
+    void diagonalNeSwGeometryProducesExpectedOccupancy() {
+        final List<Point> pixels = diagonalNeSwPixels();
+        final AmbiguousBoundaryVertexException ex = assertThrows(
+                AmbiguousBoundaryVertexException.class,
+                () -> extractor.extractAllLoops(pixels));
+        final AmbiguousBoundaryVertexDiagnostic d = ex.getDiagnostic();
+        assertEquals(AmbiguousBoundaryVertexDiagnostic.DIAGONAL_NE_SW,
+                d.getLocalOccupancyPattern());
+        assertTrue(d.isNorthEastSelected());
+        assertTrue(d.isSouthWestSelected());
+        assertFalse(d.isNorthWestSelected());
+        assertFalse(d.isSouthEastSelected());
+        assertTrue(d.getUnusedOutgoingEdges().size() >= 2);
+        assertEquals(0, d.getUsedOutgoingEdges().size());
+    }
+
+    @Test
+    void ambiguousVertexCandidateEvaluationOrderIsDeterministic() {
+        final AmbiguousBoundaryVertexDiagnostic first =
+                assertThrows(AmbiguousBoundaryVertexException.class,
+                        () -> extractor.extractAllLoops(diagonalNwSePixels()))
+                        .getDiagnostic();
+        final AmbiguousBoundaryVertexDiagnostic second =
+                assertThrows(AmbiguousBoundaryVertexException.class,
+                        () -> extractor.extractAllLoops(diagonalNwSePixels()))
+                        .getDiagnostic();
+        assertEquals(first.getUnusedOutgoingEdges(), second.getUnusedOutgoingEdges());
+        assertEquals(first.getCandidateTurnRelations(), second.getCandidateTurnRelations());
+        assertEquals(first, second);
+    }
+
+    @Test
+    void reversedSelectedPixelInputOrderProducesSameAmbiguityDiagnostic() {
+        final List<Point> forward = diagonalNwSePixels();
+        final List<Point> reversed = new ArrayList<Point>(forward);
+        Collections.reverse(reversed);
+        final AmbiguousBoundaryVertexDiagnostic a =
+                assertThrows(AmbiguousBoundaryVertexException.class,
+                        () -> extractor.extractAllLoops(forward))
+                        .getDiagnostic();
+        final AmbiguousBoundaryVertexDiagnostic b =
+                assertThrows(AmbiguousBoundaryVertexException.class,
+                        () -> extractor.extractAllLoops(reversed))
+                        .getDiagnostic();
+        assertEquals(a, b);
+    }
+
+    @Test
+    void repeatedExtractionProducesSameAmbiguityDiagnostic() {
+        final List<Point> pixels = diagonalNwSePixels();
+        final AmbiguousBoundaryVertexDiagnostic a =
+                assertThrows(AmbiguousBoundaryVertexException.class,
+                        () -> extractor.extractAllLoops(pixels))
+                        .getDiagnostic();
+        final AmbiguousBoundaryVertexDiagnostic b =
+                assertThrows(AmbiguousBoundaryVertexException.class,
+                        () -> extractor.extractAllLoops(pixels))
+                        .getDiagnostic();
+        assertEquals(a.getVertexX(), b.getVertexX());
+        assertEquals(a.getVertexY(), b.getVertexY());
+        assertEquals(a.getIncomingEdge(), b.getIncomingEdge());
+        assertEquals(a.getUnusedOutgoingEdges(), b.getUnusedOutgoingEdges());
+        assertEquals(a.getLocalOccupancyPattern(), b.getLocalOccupancyPattern());
+        assertEquals(a, b);
+    }
+
+    @Test
+    void usedEdgeCountUnchangedByDiagnosticCreation() {
+        final AmbiguousBoundaryVertexException ex = assertThrows(
+                AmbiguousBoundaryVertexException.class,
+                () -> extractor.extractAllLoops(diagonalNwSePixels()));
+        final AmbiguousBoundaryVertexDiagnostic d = ex.getDiagnostic();
+        // Incoming edge is already used; no successor was chosen.
+        assertEquals(d.getTraversalStep(), d.getUsedEdgeCountBeforeFailure());
+        assertEquals(0, d.getUsedOutgoingEdges().size());
+        assertTrue(d.getUnusedOutgoingEdges().size() >= 2);
+    }
+
+    private static List<Point> diagonalNwSePixels() {
         final List<Point> pixels = new ArrayList<Point>();
         pixels.add(new Point(0, 0));
         pixels.add(new Point(1, 0));
@@ -291,10 +405,18 @@ class OrderedBoundaryExtractorTest {
         pixels.add(new Point(2, 1));
         pixels.add(new Point(1, 2));
         pixels.add(new Point(2, 2));
-        final IllegalArgumentException ex = assertThrows(
-                IllegalArgumentException.class,
-                () -> extractor.extractAllLoops(pixels));
-        assertTrue(ex.getMessage().contains("AMBIGUOUS_BOUNDARY_VERTEX"));
+        return pixels;
+    }
+
+    private static List<Point> diagonalNeSwPixels() {
+        final List<Point> pixels = new ArrayList<Point>();
+        pixels.add(new Point(2, 0));
+        pixels.add(new Point(1, 0));
+        pixels.add(new Point(2, 1));
+        pixels.add(new Point(0, 1));
+        pixels.add(new Point(1, 2));
+        pixels.add(new Point(0, 2));
+        return pixels;
     }
 
     @Test

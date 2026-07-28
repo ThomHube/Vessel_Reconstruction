@@ -19,7 +19,7 @@ public final class OrderedBoundaryExtractor {
         final List<Point> pixels = validateAndCopy(selectedLumenPixels);
         final Set<Long> membership = toMembership(pixels);
         final List<DirectedPixelEdge> exposed = buildExposedEdges(pixels, membership);
-        return traceLoops(exposed);
+        return traceLoops(exposed, membership);
     }
 
     public OrderedBoundaryLoop selectOuterLoop(final List<Point> selectedLumenPixels) {
@@ -142,7 +142,9 @@ public final class OrderedBoundaryExtractor {
         return edges;
     }
 
-    private static List<OrderedBoundaryLoop> traceLoops(final List<DirectedPixelEdge> exposed) {
+    private static List<OrderedBoundaryLoop> traceLoops(
+            final List<DirectedPixelEdge> exposed,
+            final Set<Long> membership) {
         final int totalExposed = exposed.size();
         final Set<DirectedPixelEdge> unused = new HashSet<DirectedPixelEdge>(exposed);
         final Map<Long, List<DirectedPixelEdge>> outgoing =
@@ -193,7 +195,20 @@ public final class OrderedBoundaryExtractor {
                     throw new IllegalArgumentException("OPEN_BOUNDARY_LOOP");
                 }
                 if (options.size() > 1) {
-                    throw new IllegalArgumentException("AMBIGUOUS_BOUNDARY_VERTEX");
+                    throw new AmbiguousBoundaryVertexException(
+                            buildAmbiguityDiagnostic(
+                                    loopNumber,
+                                    steps,
+                                    totalExposed,
+                                    totalExposed - unused.size(),
+                                    endX,
+                                    endY,
+                                    current,
+                                    exposed,
+                                    outgoing,
+                                    unused,
+                                    options,
+                                    membership));
                 }
                 current = options.get(0);
             }
@@ -207,6 +222,82 @@ public final class OrderedBoundaryExtractor {
             throw new IllegalArgumentException("EXPOSED_EDGE_ACCOUNTING_MISMATCH");
         }
         return Collections.unmodifiableList(loops);
+    }
+
+    private static AmbiguousBoundaryVertexDiagnostic buildAmbiguityDiagnostic(
+            final int loopNumber,
+            final int traversalStep,
+            final int totalExposedEdgeCount,
+            final int usedEdgeCountBeforeFailure,
+            final int vertexX,
+            final int vertexY,
+            final DirectedPixelEdge incomingEdge,
+            final List<DirectedPixelEdge> exposed,
+            final Map<Long, List<DirectedPixelEdge>> outgoing,
+            final Set<DirectedPixelEdge> unused,
+            final List<DirectedPixelEdge> unusedOutgoingInEvalOrder,
+            final Set<Long> membership) {
+        final List<DirectedPixelEdge> allOutgoing = allOutgoingAt(outgoing, vertexX, vertexY);
+        final List<DirectedPixelEdge> usedOutgoing = new ArrayList<DirectedPixelEdge>();
+        for (int i = 0; i < allOutgoing.size(); i++) {
+            final DirectedPixelEdge edge = allOutgoing.get(i);
+            if (!unused.contains(edge)) {
+                usedOutgoing.add(edge);
+            }
+        }
+        final List<DirectedPixelEdge> incident = collectIncidentEdges(exposed, vertexX, vertexY);
+
+        final int nwX = AmbiguousBoundaryVertexDiagnostic.surroundingNorthWestX(vertexX);
+        final int nwY = AmbiguousBoundaryVertexDiagnostic.surroundingNorthWestY(vertexY);
+        final int neX = AmbiguousBoundaryVertexDiagnostic.surroundingNorthEastX(vertexX);
+        final int neY = AmbiguousBoundaryVertexDiagnostic.surroundingNorthEastY(vertexY);
+        final int swX = AmbiguousBoundaryVertexDiagnostic.surroundingSouthWestX(vertexX);
+        final int swY = AmbiguousBoundaryVertexDiagnostic.surroundingSouthWestY(vertexY);
+        final int seX = AmbiguousBoundaryVertexDiagnostic.surroundingSouthEastX(vertexX);
+        final int seY = AmbiguousBoundaryVertexDiagnostic.surroundingSouthEastY(vertexY);
+
+        return new AmbiguousBoundaryVertexDiagnostic(
+                loopNumber,
+                traversalStep,
+                totalExposedEdgeCount,
+                usedEdgeCountBeforeFailure,
+                vertexX,
+                vertexY,
+                incomingEdge,
+                incident,
+                allOutgoing,
+                unusedOutgoingInEvalOrder,
+                usedOutgoing,
+                membership.contains(pack(nwX, nwY)),
+                membership.contains(pack(neX, neY)),
+                membership.contains(pack(swX, swY)),
+                membership.contains(pack(seX, seY)));
+    }
+
+    private static List<DirectedPixelEdge> allOutgoingAt(
+            final Map<Long, List<DirectedPixelEdge>> outgoing,
+            final int x,
+            final int y) {
+        final List<DirectedPixelEdge> all = outgoing.get(pack(x, y));
+        if (all == null) {
+            return Collections.emptyList();
+        }
+        return new ArrayList<DirectedPixelEdge>(all);
+    }
+
+    private static List<DirectedPixelEdge> collectIncidentEdges(
+            final List<DirectedPixelEdge> exposed,
+            final int vertexX,
+            final int vertexY) {
+        final List<DirectedPixelEdge> incident = new ArrayList<DirectedPixelEdge>();
+        for (int i = 0; i < exposed.size(); i++) {
+            final DirectedPixelEdge edge = exposed.get(i);
+            if ((edge.getStartX() == vertexX && edge.getStartY() == vertexY)
+                    || (edge.getEndX() == vertexX && edge.getEndY() == vertexY)) {
+                incident.add(edge);
+            }
+        }
+        return incident;
     }
 
     private static Map<Long, List<DirectedPixelEdge>> buildOutgoingLookup(

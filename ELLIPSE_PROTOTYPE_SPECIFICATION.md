@@ -64,12 +64,22 @@ Implemented:
 - whole-ellipse versus interval-associated fill comparison
 - interval-associated preview perimeter and circularity diagnostics
 - unobscured diagnostic visualization
+- first-failure ambiguous lattice-vertex diagnostics for ordered-boundary extraction
 
 The initial ellipse may be influenced by the artifact because all observed
 boundary points are included.
 
-A selected lumen with an ambiguous high-degree lattice boundary vertex is
-rejected in this stage rather than resolved speculatively.
+8-connected lumen components can contain diagonal pixel contacts. A diagonal
+contact may create a lattice vertex with multiple unused outgoing exposed
+directed edges. The current extractor still rejects such a vertex rather than
+resolving it speculatively. Exact first-failure diagnostics are now available
+(`AMBIGUOUS_BOUNDARY_VERTEX`), including surrounding-cell occupancy, incident
+edges, unused outgoing candidates in evaluation order, and candidate turn
+relations. No successor policy has been chosen yet. The next correction must
+be based on the observed occupancy pattern and edge state.
+
+`AMBIGUOUS_BOUNDARY_VERTEX` is currently a conservative diagnostic stop, not a
+reconstruction rejection and not evidence that the ellipse method failed.
 
 Detection, single-interval refit, fill preview, and component association are
 diagnostic only. The selected interval is excluded only from mathematical fit

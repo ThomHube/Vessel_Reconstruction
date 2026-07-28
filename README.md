@@ -81,8 +81,13 @@ The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
 - whole-ellipse versus interval-associated fill comparison
 - interval-associated preview perimeter and circularity diagnostics
 - unobscured diagnostic visualization
+- first-failure ambiguous lattice-vertex diagnostics for ordered-boundary extraction
 
 The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse, detects a contiguous inward-outlier interval, performs one outer-boundary baseline fit and one interval-excluded refit, builds a whole-ellipse fill preview, and then splits proposed fill into 8-connected components associated to the selected interval via exact exterior seeds.
+
+8-connected lumen components can contain diagonal pixel contacts. A diagonal contact may create a lattice vertex with multiple unused outgoing exposed directed edges. The current extractor still rejects such a vertex and now reports an exact first-failure `AMBIGUOUS_BOUNDARY_VERTEX` diagnostic (occupancy pattern, incident edges, unused outgoing candidates, and turn relations). No successor policy has been chosen yet. The next correction must be based on the observed occupancy pattern and edge state.
+
+`AMBIGUOUS_BOUNDARY_VERTEX` is currently a conservative diagnostic stop, not a reconstruction rejection and not evidence that the ellipse method failed.
 
 Detection, refit, fill preview, and component association are diagnostic only. The selected interval is excluded only from mathematical fit support. Fill previews are additive and in-memory. No classified pixels are removed or changed. The interval-associated preview is diagnostic only; no component is currently accepted or rejected. Circularity remains a secondary diagnostic.
 

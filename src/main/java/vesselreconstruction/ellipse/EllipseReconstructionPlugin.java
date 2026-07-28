@@ -136,6 +136,9 @@ public final class EllipseReconstructionPlugin implements PlugIn {
             residualProfile = OrderedBoundaryResidualProfile.create(
                     outerLoop,
                     result.getEllipseFitResult().getFittedEllipse());
+        } catch (AmbiguousBoundaryVertexException ex) {
+            handleAmbiguousBoundaryVertex(image, classified, result, ex);
+            return;
         } catch (IllegalArgumentException ex) {
             IJ.log("Ordered boundary analysis failed: " + ex.getMessage());
             IJ.error(
@@ -2103,5 +2106,403 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         final byte[] copy = new byte[source.length];
         System.arraycopy(source, 0, copy, 0, source.length);
         return copy;
+    }
+
+    private static void handleAmbiguousBoundaryVertex(
+            final ImagePlus image,
+            final ImageProcessor classified,
+            final InitialEllipseAnalysisResult result,
+            final AmbiguousBoundaryVertexException ex) {
+        final AmbiguousBoundaryVertexDiagnostic diagnostic = ex.getDiagnostic();
+        IJ.log("Ordered boundary analysis failed:");
+        IJ.log("AMBIGUOUS_BOUNDARY_VERTEX");
+        logAmbiguousBoundaryVertexDiagnostic(diagnostic);
+        showAmbiguousBoundaryVertexVisualization(
+                image.getTitle(),
+                classified.getWidth(),
+                classified.getHeight(),
+                result.getSelectedLumenPixels(),
+                diagnostic);
+
+        final StringBuilder dialog = new StringBuilder();
+        dialog.append("Ordered boundary analysis stopped at an ambiguous lattice vertex.\n\n");
+        dialog.append("Vertex: (").append(diagnostic.getVertexX()).append(", ")
+                .append(diagnostic.getVertexY()).append(")\n");
+        dialog.append("Loop: ").append(diagnostic.getLoopNumber()).append("\n");
+        dialog.append("Traversal step: ").append(diagnostic.getTraversalStep()).append("\n");
+        dialog.append("Incoming direction: ").append(diagnostic.getIncomingDirection())
+                .append("\n");
+        dialog.append("Unused outgoing candidates: ")
+                .append(diagnostic.getUnusedOutgoingEdges().size()).append("\n");
+        dialog.append("Occupancy pattern: ").append(diagnostic.getLocalOccupancyPattern())
+                .append("\n");
+        dialog.append("Turn relations: ")
+                .append(joinStrings(diagnostic.getCandidateTurnRelations())).append("\n\n");
+        dialog.append("No successor was selected.\n");
+        dialog.append("No pixels were changed.");
+        IJ.error("Robust Ellipse Reconstruction Prototype", dialog.toString());
+    }
+
+    private static void logAmbiguousBoundaryVertexDiagnostic(
+            final AmbiguousBoundaryVertexDiagnostic diagnostic) {
+        IJ.log("Ambiguous boundary vertex diagnostic:");
+        IJ.log("loopNumber,traversalStep,totalExposedEdges,usedEdgesBeforeFailure,"
+                + "vertexX,vertexY,incomingStartX,incomingStartY,incomingEndX,incomingEndY,"
+                + "incomingDirection,incidentEdgeCount,outgoingEdgeCount,"
+                + "unusedOutgoingEdgeCount,usedOutgoingEdgeCount,"
+                + "northWestSelected,northEastSelected,southWestSelected,southEastSelected,"
+                + "localOccupancyPattern,unusedOutgoingDirections,candidateTurnRelations,"
+                + "failureInvariant");
+        final DirectedPixelEdge incoming = diagnostic.getIncomingEdge();
+        IJ.log(String.format(Locale.US,
+                "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s",
+                Integer.valueOf(diagnostic.getLoopNumber()),
+                Integer.valueOf(diagnostic.getTraversalStep()),
+                Integer.valueOf(diagnostic.getTotalExposedEdgeCount()),
+                Integer.valueOf(diagnostic.getUsedEdgeCountBeforeFailure()),
+                Integer.valueOf(diagnostic.getVertexX()),
+                Integer.valueOf(diagnostic.getVertexY()),
+                Integer.valueOf(incoming.getStartX()),
+                Integer.valueOf(incoming.getStartY()),
+                Integer.valueOf(incoming.getEndX()),
+                Integer.valueOf(incoming.getEndY()),
+                diagnostic.getIncomingDirection(),
+                Integer.valueOf(diagnostic.getAllIncidentEdges().size()),
+                Integer.valueOf(diagnostic.getOutgoingEdges().size()),
+                Integer.valueOf(diagnostic.getUnusedOutgoingEdges().size()),
+                Integer.valueOf(diagnostic.getUsedOutgoingEdges().size()),
+                Boolean.toString(diagnostic.isNorthWestSelected()),
+                Boolean.toString(diagnostic.isNorthEastSelected()),
+                Boolean.toString(diagnostic.isSouthWestSelected()),
+                Boolean.toString(diagnostic.isSouthEastSelected()),
+                diagnostic.getLocalOccupancyPattern(),
+                sanitize(joinStrings(diagnostic.getUnusedOutgoingDirections())),
+                sanitize(joinStrings(diagnostic.getCandidateTurnRelations())),
+                diagnostic.getFailureInvariant()));
+
+        final Set<DirectedPixelEdge> usedOutgoingSet =
+                new HashSet<DirectedPixelEdge>(diagnostic.getUsedOutgoingEdges());
+
+        IJ.log("Incident exposed directed edges:");
+        IJ.log("edgeNumber,startX,startY,endX,endY,direction,used,outgoingFromAmbiguousVertex");
+        final List<DirectedPixelEdge> incident = diagnostic.getAllIncidentEdges();
+        for (int i = 0; i < incident.size(); i++) {
+            final DirectedPixelEdge edge = incident.get(i);
+            final boolean outgoing =
+                    edge.getStartX() == diagnostic.getVertexX()
+                            && edge.getStartY() == diagnostic.getVertexY();
+            final boolean usedFlag;
+            if (outgoing) {
+                usedFlag = usedOutgoingSet.contains(edge);
+            } else {
+                usedFlag = edge.equals(diagnostic.getIncomingEdge());
+            }
+            IJ.log(String.format(Locale.US,
+                    "%d,%d,%d,%d,%d,%s,%s,%s",
+                    Integer.valueOf(i + 1),
+                    Integer.valueOf(edge.getStartX()),
+                    Integer.valueOf(edge.getStartY()),
+                    Integer.valueOf(edge.getEndX()),
+                    Integer.valueOf(edge.getEndY()),
+                    edge.getDirection().name(),
+                    Boolean.toString(usedFlag),
+                    Boolean.toString(outgoing)));
+        }
+
+        IJ.log("Unused outgoing candidates in evaluation order:");
+        IJ.log("candidateNumber,startX,startY,endX,endY,direction,turnRelation");
+        final List<DirectedPixelEdge> unused = diagnostic.getUnusedOutgoingEdges();
+        final List<String> turns = diagnostic.getCandidateTurnRelations();
+        for (int i = 0; i < unused.size(); i++) {
+            final DirectedPixelEdge edge = unused.get(i);
+            IJ.log(String.format(Locale.US,
+                    "%d,%d,%d,%d,%d,%s,%s",
+                    Integer.valueOf(i + 1),
+                    Integer.valueOf(edge.getStartX()),
+                    Integer.valueOf(edge.getStartY()),
+                    Integer.valueOf(edge.getEndX()),
+                    Integer.valueOf(edge.getEndY()),
+                    edge.getDirection().name(),
+                    turns.get(i)));
+        }
+
+        IJ.log("IMPORTANT:");
+        IJ.log("No successor was selected.");
+        IJ.log("The ordered boundary was not normalized or repaired.");
+        IJ.log("The ellipse was not refitted.");
+        IJ.log("No interval was detected.");
+        IJ.log("No proposed-fill component was accepted.");
+        IJ.log("The source image was not modified.");
+        IJ.log("Production reconstruction was not applied.");
+    }
+
+    private static String joinStrings(final List<String> values) {
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                sb.append('|');
+            }
+            sb.append(values.get(i));
+        }
+        return sb.toString();
+    }
+
+    private static void showAmbiguousBoundaryVertexVisualization(
+            final String sourceTitle,
+            final int imageWidth,
+            final int imageHeight,
+            final List<Point> selectedLumenPixels,
+            final AmbiguousBoundaryVertexDiagnostic diagnostic) {
+        final int canvasWidth = 520;
+        final int canvasHeight = 420;
+        final ColorProcessor rgb = new ColorProcessor(canvasWidth, canvasHeight);
+        rgb.setColor(Color.BLACK);
+        rgb.fill();
+
+        final Set<Long> selected = new HashSet<Long>();
+        for (int i = 0; i < selectedLumenPixels.size(); i++) {
+            final Point p = selectedLumenPixels.get(i);
+            selected.add((((long) p.x) << 32) ^ (p.y & 0xffffffffL));
+        }
+
+        final int vertexX = diagnostic.getVertexX();
+        final int vertexY = diagnostic.getVertexY();
+        // Local region: four surrounding cells plus one-cell margin.
+        final int cellMinX = vertexX - 2;
+        final int cellMaxX = vertexX + 1;
+        final int cellMinY = vertexY - 2;
+        final int cellMaxY = vertexY + 1;
+        final int cellCountX = cellMaxX - cellMinX + 1;
+        final int cellCountY = cellMaxY - cellMinY + 1;
+
+        final int latticeLeft = 12;
+        final int latticeTop = 12;
+        final int latticeMaxWidth = 300;
+        final int latticeMaxHeight = 300;
+        final int scale = Math.max(
+                36,
+                Math.min(latticeMaxWidth / cellCountX, latticeMaxHeight / cellCountY));
+        final int latticeWidth = cellCountX * scale;
+        final int latticeHeight = cellCountY * scale;
+
+        final Color selectedCell = new Color(120, 120, 120);
+        final Color nonSelectedCell = new Color(40, 40, 40);
+        final Color outsideCell = Color.BLACK;
+        final Color exposedEdge = Color.CYAN;
+        final Color incomingColor = Color.YELLOW;
+        final Color unusedOutgoingColor = Color.MAGENTA;
+        final Color usedOutgoingColor = new Color(200, 100, 0);
+
+        for (int cy = cellMinY; cy <= cellMaxY; cy++) {
+            for (int cx = cellMinX; cx <= cellMaxX; cx++) {
+                final int sx = latticeLeft + (cx - cellMinX) * scale;
+                final int sy = latticeTop + (cy - cellMinY) * scale;
+                final boolean inBounds =
+                        cx >= 0 && cy >= 0 && cx < imageWidth && cy < imageHeight;
+                final boolean isSelected = inBounds
+                        && selected.contains((((long) cx) << 32) ^ (cy & 0xffffffffL));
+                if (!inBounds) {
+                    rgb.setColor(outsideCell);
+                } else if (isSelected) {
+                    rgb.setColor(selectedCell);
+                } else {
+                    rgb.setColor(nonSelectedCell);
+                }
+                rgb.fillRect(sx, sy, scale, scale);
+                rgb.setColor(new Color(70, 70, 70));
+                rgb.drawRect(sx, sy, scale, scale);
+            }
+        }
+
+        // Cell labels for the four surrounding cells.
+        labelSurroundingCell(rgb, latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                diagnostic.getNorthWestX(), diagnostic.getNorthWestY(),
+                "NW", cellStateLabel(
+                        diagnostic.getNorthWestX(), diagnostic.getNorthWestY(),
+                        imageWidth, imageHeight, selected));
+        labelSurroundingCell(rgb, latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                diagnostic.getNorthEastX(), diagnostic.getNorthEastY(),
+                "NE", cellStateLabel(
+                        diagnostic.getNorthEastX(), diagnostic.getNorthEastY(),
+                        imageWidth, imageHeight, selected));
+        labelSurroundingCell(rgb, latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                diagnostic.getSouthWestX(), diagnostic.getSouthWestY(),
+                "SW", cellStateLabel(
+                        diagnostic.getSouthWestX(), diagnostic.getSouthWestY(),
+                        imageWidth, imageHeight, selected));
+        labelSurroundingCell(rgb, latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                diagnostic.getSouthEastX(), diagnostic.getSouthEastY(),
+                "SE", cellStateLabel(
+                        diagnostic.getSouthEastX(), diagnostic.getSouthEastY(),
+                        imageWidth, imageHeight, selected));
+
+        // Draw all incident exposed edges in local region (cyan), then overlays.
+        final List<DirectedPixelEdge> incident = diagnostic.getAllIncidentEdges();
+        for (int i = 0; i < incident.size(); i++) {
+            final DirectedPixelEdge edge = incident.get(i);
+            if (!edgeTouchesLocalRegion(edge, cellMinX, cellMinY, cellMaxX + 1, cellMaxY + 1)) {
+                continue;
+            }
+            drawLatticeEdge(rgb, edge, latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                    exposedEdge, 1, true);
+        }
+        for (int i = 0; i < diagnostic.getUsedOutgoingEdges().size(); i++) {
+            final DirectedPixelEdge edge = diagnostic.getUsedOutgoingEdges().get(i);
+            drawLatticeEdge(rgb, edge, latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                    usedOutgoingColor, 2, true);
+        }
+        drawLatticeEdge(rgb, diagnostic.getIncomingEdge(),
+                latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                incomingColor, 3, true);
+        for (int i = 0; i < diagnostic.getUnusedOutgoingEdges().size(); i++) {
+            final DirectedPixelEdge edge = diagnostic.getUnusedOutgoingEdges().get(i);
+            drawLatticeEdge(rgb, edge, latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                    unusedOutgoingColor, 3, true);
+        }
+
+        // Ambiguous lattice vertex marker.
+        final int vxScreen = latticeLeft + (vertexX - cellMinX) * scale;
+        final int vyScreen = latticeTop + (vertexY - cellMinY) * scale;
+        final int half = Math.max(4, scale / 6);
+        rgb.setColor(Color.WHITE);
+        rgb.fillRect(vxScreen - half, vyScreen - half, half * 2, half * 2);
+
+        // Text panel on the right.
+        final int textX = latticeLeft + latticeWidth + 16;
+        int textY = 28;
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 12));
+        rgb.setColor(Color.WHITE);
+        rgb.drawString("AMBIGUOUS BOUNDARY VERTEX DIAGNOSTIC", textX, textY);
+        textY += 20;
+        rgb.setFont(new Font("Monospaced", Font.PLAIN, 11));
+        final String[] lines = new String[] {
+                "vertex=(" + vertexX + "," + vertexY + ")",
+                "loop=" + diagnostic.getLoopNumber(),
+                "step=" + diagnostic.getTraversalStep(),
+                "occupancy=" + diagnostic.getLocalOccupancyPattern(),
+                "incoming=" + diagnostic.getIncomingDirection(),
+                "unused candidates=" + diagnostic.getUnusedOutgoingEdges().size(),
+                candidateLine(diagnostic, 0),
+                candidateLine(diagnostic, 1),
+                "used edges=" + diagnostic.getUsedEdgeCountBeforeFailure()
+                        + "/" + diagnostic.getTotalExposedEdgeCount(),
+                "",
+                "NO SUCCESSOR SELECTED",
+                "NO BOUNDARY REPAIR",
+                "NO PIXELS CHANGED"
+        };
+        for (int i = 0; i < lines.length; i++) {
+            rgb.drawString(lines[i], textX, textY);
+            textY += 16;
+        }
+
+        new ImagePlus("Ambiguous Boundary Vertex - " + sourceTitle, rgb).show();
+    }
+
+    private static String candidateLine(
+            final AmbiguousBoundaryVertexDiagnostic diagnostic,
+            final int index) {
+        if (index >= diagnostic.getUnusedOutgoingEdges().size()) {
+            return "candidate " + (index + 1) + "=n/a";
+        }
+        return "candidate " + (index + 1) + "="
+                + diagnostic.getUnusedOutgoingDirections().get(index)
+                + ", " + diagnostic.getCandidateTurnRelations().get(index);
+    }
+
+    private static String cellStateLabel(
+            final int x,
+            final int y,
+            final int imageWidth,
+            final int imageHeight,
+            final Set<Long> selected) {
+        if (x < 0 || y < 0 || x >= imageWidth || y >= imageHeight) {
+            return "OUTSIDE IMAGE";
+        }
+        if (selected.contains((((long) x) << 32) ^ (y & 0xffffffffL))) {
+            return "SELECTED";
+        }
+        return "NOT SELECTED";
+    }
+
+    private static void labelSurroundingCell(
+            final ColorProcessor rgb,
+            final int latticeLeft,
+            final int latticeTop,
+            final int scale,
+            final int cellMinX,
+            final int cellMinY,
+            final int cellX,
+            final int cellY,
+            final String cornerLabel,
+            final String stateLabel) {
+        final int sx = latticeLeft + (cellX - cellMinX) * scale;
+        final int sy = latticeTop + (cellY - cellMinY) * scale;
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.BOLD, Math.max(10, scale / 5)));
+        rgb.drawString(cornerLabel, sx + 4, sy + Math.max(12, scale / 4));
+        rgb.setFont(new Font("Monospaced", Font.PLAIN, Math.max(8, scale / 7)));
+        rgb.drawString(stateLabel, sx + 4, sy + scale - 6);
+    }
+
+    private static boolean edgeTouchesLocalRegion(
+            final DirectedPixelEdge edge,
+            final int minX,
+            final int minY,
+            final int maxXExclusive,
+            final int maxYExclusive) {
+        return pointInInclusive(edge.getStartX(), edge.getStartY(), minX, minY,
+                maxXExclusive, maxYExclusive)
+                || pointInInclusive(edge.getEndX(), edge.getEndY(), minX, minY,
+                maxXExclusive, maxYExclusive);
+    }
+
+    private static boolean pointInInclusive(
+            final int x,
+            final int y,
+            final int minX,
+            final int minY,
+            final int maxXExclusive,
+            final int maxYExclusive) {
+        return x >= minX && y >= minY && x <= maxXExclusive && y <= maxYExclusive;
+    }
+
+    private static void drawLatticeEdge(
+            final ColorProcessor rgb,
+            final DirectedPixelEdge edge,
+            final int latticeLeft,
+            final int latticeTop,
+            final int scale,
+            final int cellMinX,
+            final int cellMinY,
+            final Color color,
+            final int thickness,
+            final boolean arrow) {
+        final int x0 = latticeLeft + (edge.getStartX() - cellMinX) * scale;
+        final int y0 = latticeTop + (edge.getStartY() - cellMinY) * scale;
+        final int x1 = latticeLeft + (edge.getEndX() - cellMinX) * scale;
+        final int y1 = latticeTop + (edge.getEndY() - cellMinY) * scale;
+        rgb.setColor(color);
+        for (int t = -thickness / 2; t <= thickness / 2; t++) {
+            if (edge.getStartX() == edge.getEndX()) {
+                rgb.drawLine(x0 + t, y0, x1 + t, y1);
+            } else {
+                rgb.drawLine(x0, y0 + t, x1, y1 + t);
+            }
+        }
+        if (arrow) {
+            final int mx = (x0 + x1) / 2;
+            final int my = (y0 + y1) / 2;
+            final int dx = Integer.signum(x1 - x0);
+            final int dy = Integer.signum(y1 - y0);
+            final int ax = 5;
+            if (dx != 0) {
+                rgb.drawLine(mx, my, mx - dx * ax, my - ax);
+                rgb.drawLine(mx, my, mx - dx * ax, my + ax);
+            } else if (dy != 0) {
+                rgb.drawLine(mx, my, mx - ax, my - dy * ax);
+                rgb.drawLine(mx, my, mx + ax, my - dy * ax);
+            }
+        }
     }
 }
