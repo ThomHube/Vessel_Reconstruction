@@ -65,25 +65,36 @@ The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
 - baseline-versus-refit parameter diagnostics
 - baseline-versus-refit residual diagnostics
 - diagnostic comparison visualization
+- frozen single-interval refitted ellipse fill preview
+- exact pixel-center inclusion test
+- original-class accounting of proposed fill
+- baseline-versus-refit fill comparison
+- additive preview lumen
+- exposed-edge preview perimeter
+- secondary circularity diagnostics
+- source-image-safe visualization
 
-The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse to all exposed-edge midpoint support points, orders the selected outer boundary, detects a candidate contiguous inward-outlier interval, and when selected performs exactly one diagnostic outer-boundary baseline fit plus one interval-excluded refit for comparison.
+The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse to all exposed-edge midpoint support points, orders the selected outer boundary, detects a candidate contiguous inward-outlier interval, performs exactly one diagnostic outer-boundary baseline fit plus one interval-excluded refit, and builds an in-memory fill preview for the frozen refitted ellipse.
 
 The initial image ellipse may be influenced by the artifact because all observed boundary points are included. The comparison baseline uses all and only selected outer-boundary midpoints.
 
 A selected lumen with an ambiguous high-degree lattice boundary vertex is rejected in this stage rather than resolved speculatively.
 
-Inward-outlier interval detection and single-interval refit are diagnostic only. The selected interval is excluded only from mathematical fit support. No classified pixels are removed or changed. Prototype constants are not final biological thresholds.
+Detection, single-interval refit, and fill preview are diagnostic only. The selected interval is excluded only from mathematical fit support. The fill preview is additive and in-memory. No classified pixels are removed or changed. Circularity is calculated only to describe the preview; it does not control the ellipse fit or automatically approve reconstruction.
 
 ### Not implemented
 
-- repeated interval detection after refitting
-- iterative support-point exclusion
-- stopping based on parameter stability
-- final ellipse acceptance
-- proposed fill acceptance
+- ellipse acceptance
+- automatic reconstruction approval
 - source-image modification
-- reconstruction
+- saving a reconstructed classified image
+- processing all vessels
+- iterative interval exclusion
+- broader non-elliptical vessel handling
+- repeated interval detection after refitting
+- stopping based on parameter stability
 - pixel modification
+- reconstruction
 
 The classified source image is never modified. Circularity is not optimized and the ellipse is not forced to become a circle.
 

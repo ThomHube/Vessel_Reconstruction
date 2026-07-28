@@ -14,8 +14,10 @@ import java.awt.Font;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.geom.Point2D;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * ImageJ entry point for the initial free-ellipse diagnostic prototype.
@@ -42,12 +44,14 @@ public final class EllipseReconstructionPlugin implements PlugIn {
     @Override
     public void run(final String arg) {
         IJ.log("Robust Ellipse Reconstruction Prototype started.");
-        IJ.log("Mode: SINGLE_INWARD_INTERVAL_DIAGNOSTIC_REFIT");
+        IJ.log("Mode: REFITTED_ELLIPSE_FILL_PREVIEW");
         IJ.log("Input format: TRAINABLE_WEKA_CREATE_RESULT");
-        IJ.log("Interval exclusion: DIAGNOSTIC FIT SUPPORT ONLY");
-        IJ.log("Iterative exclusion: NOT IMPLEMENTED");
+        IJ.log("Frozen diagnostic ellipse: SINGLE_INTERVAL_REFIT");
+        IJ.log("Fill policy: ALL NON_LUMEN PIXEL CENTERS INSIDE REFITTED ELLIPSE");
+        IJ.log("Observed Lumen removal: DISABLED");
         IJ.log("Ellipse acceptance: NOT IMPLEMENTED");
-        IJ.log("Reconstruction: NOT APPLIED");
+        IJ.log("Source pixel modification: NOT APPLIED");
+        IJ.log("Production reconstruction: NOT APPLIED");
 
         IJ.log("Weka class-number mapping:");
         IJ.log("Class " + ClassifierLabels.WOOD + " = "
@@ -220,9 +224,45 @@ public final class EllipseReconstructionPlugin implements PlugIn {
                     image.getTitle(), result, residualProfile, refitResult);
             showBaselineVsRefitResidualPlot(
                     image.getTitle(), residualProfile, refitResult);
+
+            final RefittedEllipseFillPreviewResult fillPreview;
+            try {
+                fillPreview = new RefittedEllipseFillPreviewAnalyzer()
+                        .analyze(classified, result, refitResult);
+            } catch (IllegalArgumentException ex) {
+                IJ.log("Refitted ellipse fill preview failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Refitted ellipse fill preview failed:\n" + ex.getMessage());
+                return;
+            } catch (RuntimeException ex) {
+                IJ.log("Refitted ellipse fill preview failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Refitted ellipse fill preview failed:\n"
+                                + String.valueOf(ex.getMessage()));
+                return;
+            }
+
+            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Internal error: classified image was modified.");
+                return;
+            }
+
+            logFillPreview(fillPreview);
+            showFillPreviewVisualization(
+                    image.getTitle(), residualProfile, outlierDetection, fillPreview);
+            showBaselineVsRefitFillDifference(
+                    image.getTitle(), residualProfile, outlierDetection, fillPreview);
+            showSummaryDialog(
+                    result, residualProfile, outlierDetection, refitResult, fillPreview);
+            return;
         }
 
-        showSummaryDialog(result, residualProfile, outlierDetection, refitResult);
+        showSummaryDialog(result, residualProfile, outlierDetection, null, null);
     }
 
     private static void logResultPixelHistogram(final ByteProcessor classified) {
@@ -1296,123 +1336,320 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         new ImagePlus("Baseline vs Refit Residuals - " + sourceTitle, rgb).show();
     }
 
+    private static void logFillPreview(final RefittedEllipseFillPreviewResult preview) {
+        IJ.log("Refitted ellipse fill preview:");
+        IJ.log("selectedObservedLumenArea,baselinePixelCentersInsideEllipse,"
+                + "refittedPixelCentersInsideEllipse,baselineProposedFillCount,"
+                + "refittedProposedFillCount,sharedProposedFillCount,refitOnlyProposedFillCount,"
+                + "baselineOnlyProposedFillCount,refittedWoodFillCount,refittedRayFillCount,"
+                + "refittedBackgroundFillCount,refittedOtherClassFillCount,"
+                + "selectedLumenOutsideRefittedEllipseCount,otherLumenInsideRefittedEllipseCount,"
+                + "wouldOverlapAnotherLumenComponent,originalArea,originalPerimeter,"
+                + "originalCircularity,previewArea,previewPerimeter,previewCircularity,"
+                + "circularityChange,addedAreaFraction,ellipseAreaToObservedLumenAreaRatio");
+        IJ.log(preview.getSelectedObservedLumenArea()
+                + "," + preview.getBaselinePixelCentersInsideEllipse()
+                + "," + preview.getRefittedPixelCentersInsideEllipse()
+                + "," + preview.getBaselineProposedFillCount()
+                + "," + preview.getRefittedProposedFillCount()
+                + "," + preview.getSharedProposedFillCount()
+                + "," + preview.getRefitOnlyProposedFillCount()
+                + "," + preview.getBaselineOnlyProposedFillCount()
+                + "," + preview.getRefittedWoodFillCount()
+                + "," + preview.getRefittedRayFillCount()
+                + "," + preview.getRefittedBackgroundFillCount()
+                + "," + preview.getRefittedOtherClassFillCount()
+                + "," + preview.getSelectedLumenOutsideRefittedEllipseCount()
+                + "," + preview.getOtherLumenInsideRefittedEllipseCount()
+                + "," + preview.isWouldOverlapAnotherLumenComponent()
+                + "," + preview.getOriginalArea()
+                + "," + preview.getOriginalPerimeter()
+                + "," + fmt(preview.getOriginalCircularity())
+                + "," + preview.getPreviewArea()
+                + "," + preview.getPreviewPerimeter()
+                + "," + fmt(preview.getPreviewCircularity())
+                + "," + fmt(preview.getCircularityChange())
+                + "," + fmt(preview.getAddedAreaFraction())
+                + "," + fmt(preview.getEllipseAreaToObservedLumenAreaRatio()));
+
+        IJ.log("IMPORTANT:");
+        IJ.log("The preview uses the frozen single-interval refitted ellipse.");
+        IJ.log("Every non-Lumen pixel center inside that ellipse is shown as proposed fill.");
+        IJ.log("Observed Lumen pixels outside the ellipse are preserved.");
+        IJ.log("Other existing Lumen components are not merged into the selected preview.");
+        IJ.log("Circularity is diagnostic only.");
+        IJ.log("The source image was not modified.");
+        IJ.log("The refitted ellipse has not been accepted.");
+        IJ.log("Production reconstruction was not applied.");
+    }
+
+    private static void showFillPreviewVisualization(
+            final String originalTitle,
+            final OrderedBoundaryResidualProfile residualProfile,
+            final InwardOutlierDetectionResult outlierDetection,
+            final RefittedEllipseFillPreviewResult preview) {
+        final int width = preview.getImageWidth();
+        final int height = preview.getImageHeight();
+        final ColorProcessor rgb = new ColorProcessor(width, height);
+        rgb.setColor(new Color(20, 20, 20));
+        rgb.fill();
+
+        paintPoints(rgb, preview.getSelectedObservedLumenPixels(), new Color(110, 110, 110));
+        paintPoints(rgb, preview.getRefittedWoodFillPixels(), new Color(0, 180, 0));
+        paintPoints(rgb, preview.getRefittedRayFillPixels(), new Color(255, 140, 0));
+        paintPoints(rgb, preview.getRefittedBackgroundFillPixels(), new Color(220, 40, 40));
+        paintPoints(rgb, preview.getRefittedOtherClassFillPixels(), new Color(220, 0, 220));
+        paintPoints(rgb, preview.getSelectedLumenPixelsOutsideRefittedEllipse(),
+                new Color(0, 40, 140));
+        paintPoints(rgb, preview.getOtherLumenPixelsInsideRefittedEllipse(),
+                new Color(40, 120, 255));
+
+        if (outlierDetection.isIntervalSelected()) {
+            final InwardOutlierInterval interval = outlierDetection.getSelectedInterval();
+            final List<OrderedBoundaryResidualProfile.Sample> samples =
+                    residualProfile.getSamples();
+            rgb.setColor(Color.MAGENTA);
+            for (final Integer indexObj : interval.getOrderedBoundaryIndices()) {
+                final OrderedBoundaryResidualProfile.Sample sample =
+                        samples.get(indexObj.intValue());
+                drawClippedLine(
+                        rgb,
+                        sample.getEdgeStartX(),
+                        sample.getEdgeStartY(),
+                        sample.getEdgeEndX(),
+                        sample.getEdgeEndY());
+            }
+        }
+
+        drawFittedEllipse(rgb, preview.getBaselineEllipse(), Color.YELLOW);
+        drawFittedEllipse(rgb, preview.getRefittedEllipse(), Color.WHITE);
+        drawAxesColored(
+                rgb,
+                preview.getRefittedEllipse(),
+                Color.LIGHT_GRAY,
+                Color.LIGHT_GRAY,
+                Color.WHITE);
+        drawPreviewCardinalBoundary(rgb, preview.getPreviewSelectedLumenPixels(), Color.CYAN);
+        drawFillPreviewTextPanel(rgb, preview);
+
+        new ImagePlus("Refitted Ellipse Fill Preview - " + originalTitle, rgb).show();
+    }
+
+    private static void showBaselineVsRefitFillDifference(
+            final String originalTitle,
+            final OrderedBoundaryResidualProfile residualProfile,
+            final InwardOutlierDetectionResult outlierDetection,
+            final RefittedEllipseFillPreviewResult preview) {
+        final int width = preview.getImageWidth();
+        final int height = preview.getImageHeight();
+        final ColorProcessor rgb = new ColorProcessor(width, height);
+        rgb.setColor(Color.BLACK);
+        rgb.fill();
+
+        paintPoints(rgb, preview.getSelectedObservedLumenPixels(), new Color(60, 60, 60));
+        paintPoints(rgb, preview.getSharedProposedFillPixels(), new Color(0, 180, 0));
+        paintPoints(rgb, preview.getRefitOnlyProposedFillPixels(), Color.WHITE);
+        paintPoints(rgb, preview.getBaselineOnlyProposedFillPixels(), Color.YELLOW);
+
+        if (outlierDetection.isIntervalSelected()) {
+            final InwardOutlierInterval interval = outlierDetection.getSelectedInterval();
+            final List<OrderedBoundaryResidualProfile.Sample> samples =
+                    residualProfile.getSamples();
+            rgb.setColor(Color.MAGENTA);
+            for (final Integer indexObj : interval.getOrderedBoundaryIndices()) {
+                final OrderedBoundaryResidualProfile.Sample sample =
+                        samples.get(indexObj.intValue());
+                drawClippedLine(
+                        rgb,
+                        sample.getEdgeStartX(),
+                        sample.getEdgeStartY(),
+                        sample.getEdgeEndX(),
+                        sample.getEdgeEndY());
+            }
+        }
+
+        drawFittedEllipse(rgb, preview.getBaselineEllipse(), new Color(180, 180, 0));
+        drawFittedEllipse(rgb, preview.getRefittedEllipse(), Color.LIGHT_GRAY);
+
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        rgb.drawString("BASELINE VS REFIT FILL DIFFERENCE", 8, 16);
+        rgb.drawString("GREEN = SHARED PROPOSED FILL", 8, 30);
+        rgb.drawString("WHITE = REFIT-ONLY PROPOSED FILL", 8, 44);
+        rgb.drawString("YELLOW = BASELINE-ONLY PROPOSED FILL", 8, 58);
+        rgb.drawString("MAGENTA = SELECTED INWARD INTERVAL", 8, 72);
+        rgb.drawString("NO PIXELS CHANGED", 8, 86);
+        rgb.drawString("NO ACCEPTANCE", 8, 100);
+        rgb.drawString("NO PRODUCTION RECONSTRUCTION", 8, 114);
+        rgb.drawString("shared=" + preview.getSharedProposedFillCount()
+                + "  refit-only=" + preview.getRefitOnlyProposedFillCount()
+                + "  baseline-only=" + preview.getBaselineOnlyProposedFillCount(), 8, 130);
+
+        new ImagePlus("Baseline vs Refit Fill Difference - " + originalTitle, rgb).show();
+    }
+
+    private static void drawPreviewCardinalBoundary(
+            final ColorProcessor rgb,
+            final List<Point> members,
+            final Color color) {
+        final Set<Long> keys = new HashSet<Long>(members.size() * 2);
+        for (int i = 0; i < members.size(); i++) {
+            final Point p = members.get(i);
+            keys.add(Long.valueOf((((long) p.x) << 32) ^ (p.y & 0xffffffffL)));
+        }
+        final int width = rgb.getWidth();
+        final int height = rgb.getHeight();
+        final int[] dx = {0, 1, 0, -1};
+        final int[] dy = {-1, 0, 1, 0};
+        rgb.setColor(color);
+        for (int i = 0; i < members.size(); i++) {
+            final Point p = members.get(i);
+            for (int d = 0; d < dx.length; d++) {
+                final int nx = p.x + dx[d];
+                final int ny = p.y + dy[d];
+                final long nkey = (((long) nx) << 32) ^ (ny & 0xffffffffL);
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height
+                        || !keys.contains(Long.valueOf(nkey))) {
+                    if (dx[d] == 0 && dy[d] == -1) {
+                        drawClippedLine(rgb, p.x, p.y, p.x + 1, p.y);
+                    } else if (dx[d] == 1 && dy[d] == 0) {
+                        drawClippedLine(rgb, p.x + 1, p.y, p.x + 1, p.y + 1);
+                    } else if (dx[d] == 0 && dy[d] == 1) {
+                        drawClippedLine(rgb, p.x, p.y + 1, p.x + 1, p.y + 1);
+                    } else {
+                        drawClippedLine(rgb, p.x, p.y, p.x, p.y + 1);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void drawFillPreviewTextPanel(
+            final ColorProcessor rgb,
+            final RefittedEllipseFillPreviewResult preview) {
+        final int maxPanelHeight = (int) Math.floor(rgb.getHeight() * 0.45);
+        final String[] lines = new String[] {
+                "REFITTED ELLIPSE FILL PREVIEW",
+                "GREEN = PROPOSED WOOD TO LUMEN",
+                "ORANGE = PROPOSED RAY TO LUMEN",
+                "RED = PROPOSED BACKGROUND TO LUMEN",
+                "MAGENTA = PROPOSED UNKNOWN TO LUMEN",
+                "DARK BLUE = OBSERVED LUMEN OUTSIDE ELLIPSE",
+                "BRIGHT BLUE = OTHER LUMEN INSIDE ELLIPSE",
+                "WHITE = FROZEN REFITTED ELLIPSE",
+                "CYAN = PREVIEW LUMEN BOUNDARY",
+                "SOURCE IMAGE NOT MODIFIED",
+                "ELLIPSE NOT ACCEPTED",
+                "PRODUCTION RECONSTRUCTION NOT APPLIED",
+                "observed area=" + preview.getSelectedObservedLumenArea(),
+                "proposed fill=" + preview.getRefittedProposedFillCount(),
+                "Wood fill=" + preview.getRefittedWoodFillCount(),
+                "Ray fill=" + preview.getRefittedRayFillCount(),
+                "Background fill=" + preview.getRefittedBackgroundFillCount(),
+                "other fill=" + preview.getRefittedOtherClassFillCount(),
+                "observed Lumen outside ellipse="
+                        + preview.getSelectedLumenOutsideRefittedEllipseCount(),
+                "other Lumen inside ellipse="
+                        + preview.getOtherLumenInsideRefittedEllipseCount(),
+                "original circularity=" + fmt(preview.getOriginalCircularity()),
+                "preview circularity=" + fmt(preview.getPreviewCircularity()),
+                "circularity change=" + fmt(preview.getCircularityChange()),
+                "added area fraction=" + fmt(preview.getAddedAreaFraction())
+        };
+        rgb.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        final int lineHeight = 13;
+        int used = 8 + lines.length * lineHeight;
+        if (used > maxPanelHeight) {
+            used = maxPanelHeight;
+        }
+        rgb.setColor(Color.BLACK);
+        rgb.setRoi(4, 4, Math.min(460, rgb.getWidth() - 8), used);
+        rgb.fill();
+        rgb.setRoi(0, 0, rgb.getWidth(), rgb.getHeight());
+        rgb.setColor(Color.WHITE);
+        int y = 16;
+        for (int i = 0; i < lines.length; i++) {
+            if (y > maxPanelHeight) {
+                break;
+            }
+            rgb.drawString(lines[i], 8, y);
+            y += lineHeight;
+        }
+    }
+
     private static void showSummaryDialog(
             final InitialEllipseAnalysisResult result,
             final OrderedBoundaryResidualProfile residualProfile,
             final InwardOutlierDetectionResult outlierDetection,
-            final SingleIntervalEllipseRefitResult refitResult) {
-        final EllipseFitResult fit = result.getEllipseFitResult();
-        final EllipseModel ellipse = fit.getFittedEllipse();
+            final SingleIntervalEllipseRefitResult refitResult,
+            final RefittedEllipseFillPreviewResult fillPreview) {
         final StringBuilder message = new StringBuilder();
-        message.append("Initial free ellipse fit completed.\n\n");
-        message.append("Input lumen encoding:\n");
-        message.append("Class ").append(ClassifierLabels.LUMEN).append(" = ")
-                .append(ClassifierLabels.nameOf(ClassifierLabels.LUMEN)).append("\n");
-        message.append("Weka result pixel value = ")
-                .append(ClassifierLabels.LUMEN_RESULT_VALUE).append("\n\n");
-        message.append("Selected lumen area: ").append(result.getSelectedComponentArea()).append("\n");
-        message.append("Boundary support points: ")
-                .append(result.getBoundarySupportPoints().size()).append("\n");
-        message.append("Ellipse center: (").append(fmt(ellipse.getCenterX())).append(", ")
-                .append(fmt(ellipse.getCenterY())).append(")\n");
-        message.append("Semi-major axis: ").append(fmt(ellipse.getSemiMajorAxis())).append("\n");
-        message.append("Semi-minor axis: ").append(fmt(ellipse.getSemiMinorAxis())).append("\n");
-        message.append("Axis ratio: ").append(fmt(ellipse.getAxisRatio())).append("\n");
-        message.append("Rotation: ")
-                .append(fmt(Math.toDegrees(ellipse.getRotationRadians()))).append(" degrees\n");
-        message.append("RMS residual: ").append(fmt(fit.getRootMeanSquaredResidual())).append("\n");
-        message.append("Proposed fill pixels: ")
-                .append(result.getProposedFillPixelCount()).append("\n\n");
-        message.append("Ordered outer-boundary edges: ")
-                .append(residualProfile.getSamples().size()).append("\n");
-        message.append("Minimum inward residual: ")
-                .append(fmt(residualProfile.getMinimumResidual()))
-                .append(" at index ").append(residualProfile.getMinimumResidualIndex()).append("\n");
-        message.append("Maximum outward residual: ")
-                .append(fmt(residualProfile.getMaximumResidual()))
-                .append(" at index ").append(residualProfile.getMaximumResidualIndex()).append("\n");
-        message.append("Median residual: ")
-                .append(fmt(residualProfile.getMedianResidual())).append("\n");
-        message.append("MAD: ")
-                .append(fmt(residualProfile.getMedianAbsoluteDeviation())).append("\n\n");
-        message.append("Robust residual scale: ")
-                .append(fmt(outlierDetection.getRobustScale())).append("\n");
-        message.append("Core threshold: ")
-                .append(fmt(outlierDetection.getCoreThreshold())).append("\n");
-        message.append("Expansion threshold: ")
-                .append(fmt(outlierDetection.getExpansionThreshold())).append("\n");
-        message.append("Candidate intervals: ")
-                .append(outlierDetection.getCandidateIntervals().size()).append("\n");
-        message.append("Interval selected: ")
-                .append(outlierDetection.isIntervalSelected()).append("\n");
-        message.append("Selection reason: ")
-                .append(outlierDetection.getSelectionReason()).append("\n");
-        if (outlierDetection.isIntervalSelected()) {
-            final InwardOutlierInterval interval = outlierDetection.getSelectedInterval();
-            message.append("\nInterval start index: ").append(interval.getStartIndex()).append("\n");
-            message.append("Interval end index: ").append(interval.getEndIndex()).append("\n");
-            message.append("Interval wraps around: ").append(interval.isWrapsAround()).append("\n");
-            message.append("Interval edge count: ").append(interval.getEdgeCount()).append("\n");
-            message.append("Interval boundary fraction: ")
-                    .append(fmt(interval.getBoundaryFraction())).append("\n");
-            message.append("Interval minimum residual: ")
-                    .append(fmt(interval.getMinimumResidual())).append("\n");
-            message.append("Interval dominance ratio: ")
-                    .append(fmtDominance(outlierDetection.getDominanceRatio())).append("\n");
-        }
-
-        if (refitResult != null) {
-            final EllipseModel baseline =
-                    refitResult.getOuterBoundaryBaselineFit().getFittedEllipse();
-            final EllipseModel refitted =
-                    refitResult.getIntervalExcludedFit().getFittedEllipse();
-            message.append("\nSingle inward-interval diagnostic refit completed.\n");
-            message.append("Outer-boundary support points: ")
-                    .append(refitResult.getTotalSupportPointCount()).append("\n");
-            message.append("Retained support points: ")
-                    .append(refitResult.getRetainedSupportPointCount()).append("\n");
-            message.append("Excluded support points: ")
-                    .append(refitResult.getExcludedSupportPointCount()).append("\n");
-            message.append("Retained support fraction: ")
-                    .append(fmt(refitResult.getRetainedSupportFraction())).append("\n");
-            message.append("Baseline ellipse:\n");
-            message.append("center=(").append(fmt(baseline.getCenterX())).append(", ")
-                    .append(fmt(baseline.getCenterY())).append(")\n");
-            message.append("semi-major axis=").append(fmt(baseline.getSemiMajorAxis())).append("\n");
-            message.append("semi-minor axis=").append(fmt(baseline.getSemiMinorAxis())).append("\n");
-            message.append("axis ratio=").append(fmt(baseline.getAxisRatio())).append("\n");
-            message.append("rotation=")
-                    .append(fmt(Math.toDegrees(baseline.getRotationRadians())))
-                    .append(" degrees\n");
-            message.append("Refitted ellipse:\n");
-            message.append("center=(").append(fmt(refitted.getCenterX())).append(", ")
-                    .append(fmt(refitted.getCenterY())).append(")\n");
-            message.append("semi-major axis=").append(fmt(refitted.getSemiMajorAxis())).append("\n");
-            message.append("semi-minor axis=").append(fmt(refitted.getSemiMinorAxis())).append("\n");
-            message.append("axis ratio=").append(fmt(refitted.getAxisRatio())).append("\n");
-            message.append("rotation=")
-                    .append(fmt(Math.toDegrees(refitted.getRotationRadians())))
-                    .append(" degrees\n");
-            message.append("Center shift: ").append(fmt(refitResult.getCenterShift())).append("\n");
-            message.append("Rotation change: ")
-                    .append(fmt(refitResult.getRotationChangeDegrees())).append(" degrees\n");
-            message.append("Baseline retained RMS: ")
-                    .append(fmt(refitResult.getBaselineRetainedRmsResidual())).append("\n");
-            message.append("Refitted retained RMS: ")
-                    .append(fmt(refitResult.getRefittedRetainedRmsResidual())).append("\n");
-            message.append("Baseline excluded mean residual: ")
-                    .append(fmt(refitResult.getBaselineExcludedMeanResidual())).append("\n");
-            message.append("Refitted excluded mean residual: ")
-                    .append(fmt(refitResult.getRefittedExcludedMeanResidual())).append("\n");
-            message.append("\nThe selected interval was excluded from fit support only.\n");
-            message.append("No iterative exclusion was performed.\n");
+        if (fillPreview != null) {
+            message.append("Refitted ellipse fill preview completed.\n\n");
+            message.append("Observed lumen area: ")
+                    .append(fillPreview.getSelectedObservedLumenArea()).append("\n");
+            message.append("Refitted proposed fill pixels: ")
+                    .append(fillPreview.getRefittedProposedFillCount()).append("\n");
+            message.append("Wood proposed fill: ")
+                    .append(fillPreview.getRefittedWoodFillCount()).append("\n");
+            message.append("Ray proposed fill: ")
+                    .append(fillPreview.getRefittedRayFillCount()).append("\n");
+            message.append("Background proposed fill: ")
+                    .append(fillPreview.getRefittedBackgroundFillCount()).append("\n");
+            message.append("Other proposed fill: ")
+                    .append(fillPreview.getRefittedOtherClassFillCount()).append("\n");
+            message.append("Shared baseline/refit fill: ")
+                    .append(fillPreview.getSharedProposedFillCount()).append("\n");
+            message.append("Refit-only fill: ")
+                    .append(fillPreview.getRefitOnlyProposedFillCount()).append("\n");
+            message.append("Baseline-only fill: ")
+                    .append(fillPreview.getBaselineOnlyProposedFillCount()).append("\n");
+            message.append("Observed Lumen outside refitted ellipse: ")
+                    .append(fillPreview.getSelectedLumenOutsideRefittedEllipseCount())
+                    .append("\n");
+            message.append("Other Lumen inside refitted ellipse: ")
+                    .append(fillPreview.getOtherLumenInsideRefittedEllipseCount()).append("\n");
+            message.append("Would overlap another Lumen component: ")
+                    .append(fillPreview.isWouldOverlapAnotherLumenComponent()).append("\n");
+            message.append("Original perimeter: ")
+                    .append(fillPreview.getOriginalPerimeter()).append("\n");
+            message.append("Preview perimeter: ")
+                    .append(fillPreview.getPreviewPerimeter()).append("\n");
+            message.append("Original circularity: ")
+                    .append(fmt(fillPreview.getOriginalCircularity())).append("\n");
+            message.append("Preview circularity: ")
+                    .append(fmt(fillPreview.getPreviewCircularity())).append("\n");
+            message.append("Circularity change: ")
+                    .append(fmt(fillPreview.getCircularityChange())).append("\n");
+            message.append("Added area fraction: ")
+                    .append(fmt(fillPreview.getAddedAreaFraction())).append("\n");
+            message.append("Ellipse area / observed Lumen area: ")
+                    .append(fmt(fillPreview.getEllipseAreaToObservedLumenAreaRatio()))
+                    .append("\n");
+            message.append("\nThe preview is additive only.\n");
+            message.append("Observed Lumen pixels were not removed.\n");
+            message.append("The source image was not modified.\n");
             message.append("The refitted ellipse has not been accepted.\n");
-            message.append("Reconstruction was not applied.");
+            message.append("Production reconstruction was not applied.");
         } else {
-            message.append("\nThe interval is diagnostic only.\n");
-            message.append("No boundary points were excluded.\n");
-            message.append("The ellipse was not refitted.\n");
-            message.append("Reconstruction was not applied.");
+            final EllipseFitResult fit = result.getEllipseFitResult();
+            final EllipseModel ellipse = fit.getFittedEllipse();
+            message.append("Initial free ellipse fit completed.\n\n");
+            message.append("Selected lumen area: ")
+                    .append(result.getSelectedComponentArea()).append("\n");
+            message.append("Interval selected: ")
+                    .append(outlierDetection.isIntervalSelected()).append("\n");
+            message.append("Selection reason: ")
+                    .append(outlierDetection.getSelectionReason()).append("\n");
+            message.append("Ordered outer-boundary edges: ")
+                    .append(residualProfile.getSamples().size()).append("\n");
+            message.append("Ellipse center: (").append(fmt(ellipse.getCenterX())).append(", ")
+                    .append(fmt(ellipse.getCenterY())).append(")\n");
+            if (refitResult != null) {
+                message.append("\nRefit completed but fill preview was not generated.\n");
+            }
+            message.append("\nThe source image was not modified.\n");
+            message.append("Production reconstruction was not applied.");
         }
         IJ.showMessage("Robust Ellipse Reconstruction Prototype", message.toString());
     }
