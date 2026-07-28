@@ -12,6 +12,10 @@ This repository is independent from the legacy contour project. The old contour 
 
 Trainable Weka Segmentation class values cannot be renamed. This project uses:
 
+### Trainable Weka class numbers versus result pixel values
+
+Human-facing class order:
+
 | Class | Label |
 |-------|-------|
 | 1 | Wood |
@@ -19,22 +23,55 @@ Trainable Weka Segmentation class values cannot be renamed. This project uses:
 | 3 | Lumen |
 | 4 | Background |
 
+Direct "Create result" 8-bit encoding:
+
+| Pixel value | Class | Label |
+|-------------|-------|-------|
+| 0 | 1 | Wood |
+| 1 | 2 | Ray |
+| 2 | 3 | Lumen |
+| 3 | 4 | Background |
+
+The class mapping has not changed. Only the raw result-image encoding is zero-based.
+
+The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
+
 ## Current state
 
-The plugin entry point remains diagnostic-only: it logs the fixed classifier mapping and shows a confirmation dialog. It does not require an active image and does not inspect or modify any image.
+### Implemented
 
-Mathematical free-ellipse fitting is implemented independently of image processing:
+- active 8-bit classified-image validation
+- Class 3 connected-component extraction using 8-connectivity
+- deterministic largest-component selection
+- exact exposed pixel-edge midpoint support extraction
+- initial free ellipse fit to all support points
+- initial proposed-fill preview
+- diagnostic visualization
+- mathematical free-ellipse model and deterministic fitter
+- deterministic exposed directed pixel-edge construction
+- conservative closed-loop extraction
+- deterministic outer-loop selection
+- ordered outer-boundary residual profile
+- residual visualization and profile plot
 
-- `EllipseModel` represents a free ellipse (center, two independent axes, rotation)
-- `FreeEllipseFitter` deterministically fits ellipse support points by minimizing mean squared normalized radial residuals
-- Circularity is not optimized and the ellipse is not forced to become a circle
+The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse to all exposed-edge midpoint support points, orders the selected outer boundary, and shows residual diagnostics.
 
-Still unimplemented:
+The initial ellipse may be influenced by the artifact because all observed boundary points are included.
 
-- image access, lumen detection, and boundary tracing
-- inward-outlier exclusion and robust iteration
-- pixel filling / reconstruction
-- Fiji visualization
+A selected lumen with an ambiguous high-degree lattice boundary vertex is rejected in this stage rather than resolved speculatively.
+
+### Not implemented
+
+- residual threshold selection
+- inward-outlier interval selection
+- support-point exclusion
+- robust ellipse refitting
+- ellipse acceptance
+- production reconstruction
+- pixel modification
+- source-pixel modification
+
+The classified source image is never modified. Circularity is not optimized and the ellipse is not forced to become a circle.
 
 ## Planned workflow
 

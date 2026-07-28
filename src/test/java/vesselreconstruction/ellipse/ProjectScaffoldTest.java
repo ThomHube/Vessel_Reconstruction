@@ -45,6 +45,102 @@ class ProjectScaffoldTest {
     }
 
     @Test
+    void woodResultValueEqualsZero() {
+        assertEquals(0, ClassifierLabels.WOOD_RESULT_VALUE);
+    }
+
+    @Test
+    void rayResultValueEqualsOne() {
+        assertEquals(1, ClassifierLabels.RAY_RESULT_VALUE);
+    }
+
+    @Test
+    void lumenResultValueEqualsTwo() {
+        assertEquals(2, ClassifierLabels.LUMEN_RESULT_VALUE);
+    }
+
+    @Test
+    void backgroundResultValueEqualsThree() {
+        assertEquals(3, ClassifierLabels.BACKGROUND_RESULT_VALUE);
+    }
+
+    @Test
+    void resultValueOfClassNumberWood() {
+        assertEquals(0, ClassifierLabels.resultValueOfClassNumber(1));
+    }
+
+    @Test
+    void resultValueOfClassNumberRay() {
+        assertEquals(1, ClassifierLabels.resultValueOfClassNumber(2));
+    }
+
+    @Test
+    void resultValueOfClassNumberLumen() {
+        assertEquals(2, ClassifierLabels.resultValueOfClassNumber(3));
+    }
+
+    @Test
+    void resultValueOfClassNumberBackground() {
+        assertEquals(3, ClassifierLabels.resultValueOfClassNumber(4));
+    }
+
+    @Test
+    void classNumberOfResultValueWood() {
+        assertEquals(1, ClassifierLabels.classNumberOfResultValue(0));
+    }
+
+    @Test
+    void classNumberOfResultValueRay() {
+        assertEquals(2, ClassifierLabels.classNumberOfResultValue(1));
+    }
+
+    @Test
+    void classNumberOfResultValueLumen() {
+        assertEquals(3, ClassifierLabels.classNumberOfResultValue(2));
+    }
+
+    @Test
+    void classNumberOfResultValueBackground() {
+        assertEquals(4, ClassifierLabels.classNumberOfResultValue(3));
+    }
+
+    @Test
+    void nameOfResultValueWood() {
+        assertEquals("Wood", ClassifierLabels.nameOfResultValue(0));
+    }
+
+    @Test
+    void nameOfResultValueRay() {
+        assertEquals("Ray", ClassifierLabels.nameOfResultValue(1));
+    }
+
+    @Test
+    void nameOfResultValueLumen() {
+        assertEquals("Lumen", ClassifierLabels.nameOfResultValue(2));
+    }
+
+    @Test
+    void nameOfResultValueBackground() {
+        assertEquals("Background", ClassifierLabels.nameOfResultValue(3));
+    }
+
+    @Test
+    void invalidClassNumberRejected() {
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> ClassifierLabels.resultValueOfClassNumber(0));
+        assertTrue(ex.getMessage().contains("0"));
+    }
+
+    @Test
+    void invalidResultValueRejected() {
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> ClassifierLabels.classNumberOfResultValue(4));
+        assertTrue(ex.getMessage().contains("4"));
+    }
+
+    @Test
     void nameOfWood() {
         assertEquals("Wood", ClassifierLabels.nameOf(1));
     }

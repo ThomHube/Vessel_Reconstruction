@@ -5,7 +5,7 @@
 - **Algorithm:** Robust Ellipse Reconstruction
 - **Project directory:** `/home/thomas/IdeaProjects/minimal-ij1-plugin-ellipse`
 - **Artifact:** `VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar`
-- **Status:** Free-ellipse mathematical model and deterministic fitter implemented; image processing, outlier exclusion, and reconstruction remain unimplemented
+- **Status:** Initial image-based free-ellipse diagnostic prototype implemented; robust outlier exclusion and reconstruction remain unimplemented
 - **Independence:** This repository does not contain the legacy contour bridgepoint algorithm
 
 ## Mathematical free-ellipse stage
@@ -20,15 +20,47 @@ The fitter recovers center, two independent axes, and rotation. It minimizes
 normalized radial residuals. It does not optimize circularity and does not
 force the ellipse toward a circle.
 
+## Initial image-analysis stage
+
+Implemented:
+
+- active 8-bit classified-image validation
+- Class 3 connected-component extraction using 8-connectivity
+- deterministic largest-component selection
+- exact exposed pixel-edge midpoint support extraction
+- initial free ellipse fit to all support points
+- initial proposed-fill preview
+- diagnostic visualization
+- deterministic exposed directed pixel-edge construction
+- conservative closed-loop extraction
+- deterministic outer-loop selection
+- ordered outer-boundary residual profile
+- residual visualization and profile plot
+
+The initial ellipse may be influenced by the artifact because all observed
+boundary points are included.
+
+A selected lumen with an ambiguous high-degree lattice boundary vertex is
+rejected in this stage rather than resolved speculatively.
+
 Not yet implemented:
 
-- image access / lumen detection / boundary tracing
-- inward-outlier exclusion and robust refitting
-- proposed fill preview and production reconstruction
+- residual threshold selection
+- inward-outlier interval selection
+- support-point exclusion
+- robust ellipse refitting
+- ellipse acceptance
+- production reconstruction
+- pixel modification
+- source-pixel modification
 
 ## Fixed classifier mapping
 
-Trainable Weka Segmentation classes cannot be renamed:
+Trainable Weka Segmentation classes cannot be renamed.
+
+### Trainable Weka class numbers versus result pixel values
+
+Human-facing class order:
 
 | Value | Label |
 |------:|-------|
@@ -36,6 +68,20 @@ Trainable Weka Segmentation classes cannot be renamed:
 | 2 | Ray |
 | 3 | Lumen |
 | 4 | Background |
+
+Direct "Create result" 8-bit encoding:
+
+| Pixel value | Class | Label |
+|------------:|------:|-------|
+| 0 | 1 | Wood |
+| 1 | 2 | Ray |
+| 2 | 3 | Lumen |
+| 3 | 4 | Background |
+
+The class mapping has not changed.
+Only the raw result-image encoding is zero-based.
+
+The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
 
 ## Biological assumption
 
