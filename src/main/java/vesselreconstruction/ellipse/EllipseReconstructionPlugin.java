@@ -44,12 +44,11 @@ public final class EllipseReconstructionPlugin implements PlugIn {
     @Override
     public void run(final String arg) {
         IJ.log("Robust Ellipse Reconstruction Prototype started.");
-        IJ.log("Mode: REFITTED_ELLIPSE_FILL_PREVIEW");
+        IJ.log("Mode: PROPOSED_FILL_COMPONENT_DIAGNOSTICS");
         IJ.log("Input format: TRAINABLE_WEKA_CREATE_RESULT");
-        IJ.log("Frozen diagnostic ellipse: SINGLE_INTERVAL_REFIT");
-        IJ.log("Fill policy: ALL NON_LUMEN PIXEL CENTERS INSIDE REFITTED ELLIPSE");
-        IJ.log("Observed Lumen removal: DISABLED");
-        IJ.log("Ellipse acceptance: NOT IMPLEMENTED");
+        IJ.log("Whole-ellipse fill: DIAGNOSTIC");
+        IJ.log("Interval-associated fill: DIAGNOSTIC");
+        IJ.log("Component acceptance: NOT IMPLEMENTED");
         IJ.log("Source pixel modification: NOT APPLIED");
         IJ.log("Production reconstruction: NOT APPLIED");
 
@@ -257,12 +256,48 @@ public final class EllipseReconstructionPlugin implements PlugIn {
                     image.getTitle(), residualProfile, outlierDetection, fillPreview);
             showBaselineVsRefitFillDifference(
                     image.getTitle(), residualProfile, outlierDetection, fillPreview);
+
+            final ProposedFillComponentAnalysisResult componentAnalysis;
+            try {
+                componentAnalysis = new ProposedFillComponentAnalyzer()
+                        .analyze(classified, fillPreview, outlierDetection);
+            } catch (IllegalArgumentException ex) {
+                IJ.log("Proposed-fill component analysis failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Proposed-fill component analysis failed:\n" + ex.getMessage());
+                return;
+            } catch (RuntimeException ex) {
+                IJ.log("Proposed-fill component analysis failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Proposed-fill component analysis failed:\n"
+                                + String.valueOf(ex.getMessage()));
+                return;
+            }
+
+            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Internal error: classified image was modified.");
+                return;
+            }
+
+            logProposedFillComponents(componentAnalysis);
+            showProposedFillComponentsVisualization(
+                    image.getTitle(), residualProfile, outlierDetection, fillPreview,
+                    componentAnalysis);
+            showWholeVsAssociatedFillComparison(
+                    image.getTitle(), residualProfile, outlierDetection, fillPreview,
+                    componentAnalysis);
             showSummaryDialog(
-                    result, residualProfile, outlierDetection, refitResult, fillPreview);
+                    result, residualProfile, outlierDetection, refitResult, fillPreview,
+                    componentAnalysis);
             return;
         }
 
-        showSummaryDialog(result, residualProfile, outlierDetection, null, null);
+        showSummaryDialog(result, residualProfile, outlierDetection, null, null, null);
     }
 
     private static void logResultPixelHistogram(final ByteProcessor classified) {
@@ -1577,78 +1612,465 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         }
     }
 
+    private static void logProposedFillComponents(
+            final ProposedFillComponentAnalysisResult analysis) {
+        final ProposedFillComponent primary = analysis.getPrimaryIntervalAssociatedComponent();
+        final int primaryId = primary == null ? -1 : primary.getComponentId();
+        final int primaryArea = primary == null ? 0 : primary.getArea();
+        IJ.log("Proposed-fill component summary:");
+        IJ.log("totalComponents,intervalAssociatedComponents,nonAssociatedComponents,"
+                + "totalProposedFillPixels,intervalAssociatedFillPixels,nonAssociatedFillPixels,"
+                + "intervalAssociatedFillFraction,primaryComponentId,primaryComponentArea,"
+                + "primaryComponentFillFraction,primaryWithinAssociatedFraction,"
+                + "intervalExteriorEdges,uniqueIntervalExteriorSeedPixels,"
+                + "matchedIntervalExteriorSeedPixels,unmatchedIntervalExteriorSeedPixels,"
+                + "exactlyOneIntervalAssociatedComponent,allProposedFillIsIntervalAssociated,"
+                + "wholeEllipsePreviewArea,wholeEllipsePreviewPerimeter,"
+                + "wholeEllipsePreviewCircularity,wholeEllipseCircularityChange,"
+                + "intervalAssociatedPreviewArea,intervalAssociatedPreviewPerimeter,"
+                + "intervalAssociatedPreviewCircularity,intervalAssociatedCircularityChange");
+        final RefittedEllipseFillPreviewResult whole = analysis.getWholeEllipsePreview();
+        IJ.log(analysis.getTotalComponentCount()
+                + "," + analysis.getIntervalAssociatedComponentCount()
+                + "," + analysis.getNonAssociatedComponentCount()
+                + "," + analysis.getTotalProposedFillPixelCount()
+                + "," + analysis.getIntervalAssociatedFillPixelCount()
+                + "," + analysis.getNonAssociatedFillPixelCount()
+                + "," + fmt(analysis.getIntervalAssociatedFillFraction())
+                + "," + primaryId
+                + "," + primaryArea
+                + "," + fmt(analysis.getPrimaryComponentFillFraction())
+                + "," + fmt(analysis.getPrimaryWithinAssociatedFraction())
+                + "," + analysis.getIntervalExteriorEdgeCount()
+                + "," + analysis.getUniqueIntervalExteriorSeedPixelCount()
+                + "," + analysis.getMatchedIntervalExteriorSeedPixelCount()
+                + "," + analysis.getUnmatchedIntervalExteriorSeedPixelCount()
+                + "," + analysis.isExactlyOneIntervalAssociatedComponent()
+                + "," + analysis.isAllProposedFillIsIntervalAssociated()
+                + "," + whole.getPreviewArea()
+                + "," + whole.getPreviewPerimeter()
+                + "," + fmt(analysis.getWholeEllipseCircularity())
+                + "," + fmt(analysis.getWholeEllipseCircularityChange())
+                + "," + analysis.getIntervalAssociatedPreviewArea()
+                + "," + analysis.getIntervalAssociatedPreviewPerimeter()
+                + "," + fmt(analysis.getIntervalAssociatedPreviewCircularity())
+                + "," + fmt(analysis.getIntervalAssociatedCircularityChange()));
+
+        IJ.log("Proposed-fill components:");
+        IJ.log("componentId,area,minX,minY,maxX,maxY,selectedLumenContactPixels,"
+                + "selectedLumenContactEdges,intervalExteriorSeedPixels,"
+                + "intervalExteriorEdgeHits,intervalAssociated,woodPixels,rayPixels,"
+                + "backgroundPixels,otherClassPixels,primary");
+        final List<ProposedFillComponent> components = analysis.getAllComponents();
+        for (int i = 0; i < components.size(); i++) {
+            final ProposedFillComponent c = components.get(i);
+            final Rectangle b = c.getBounds();
+            final boolean isPrimary = primary != null && primary.getComponentId() == c.getComponentId();
+            IJ.log(c.getComponentId()
+                    + "," + c.getArea()
+                    + "," + b.x
+                    + "," + b.y
+                    + "," + (b.x + b.width - 1)
+                    + "," + (b.y + b.height - 1)
+                    + "," + c.getSelectedLumenContactPixelCount()
+                    + "," + c.getSelectedLumenContactEdgeCount()
+                    + "," + c.getIntervalExteriorSeedPixelCount()
+                    + "," + c.getIntervalExteriorEdgeHitCount()
+                    + "," + c.isIntervalAssociated()
+                    + "," + c.getWoodPixelCount()
+                    + "," + c.getRayPixelCount()
+                    + "," + c.getBackgroundPixelCount()
+                    + "," + c.getOtherClassPixelCount()
+                    + "," + isPrimary);
+        }
+
+        IJ.log("IMPORTANT:");
+        IJ.log("Proposed fill was split using 8-connectivity.");
+        IJ.log("Interval association requires an exact match with an interval exterior seed.");
+        IJ.log("Components were not bridged or merged.");
+        IJ.log("The whole-ellipse preview remains unchanged.");
+        IJ.log("The interval-associated preview is diagnostic only.");
+        IJ.log("No component has been accepted or rejected.");
+        IJ.log("The source image was not modified.");
+        IJ.log("Production reconstruction was not applied.");
+    }
+
+    private static void showProposedFillComponentsVisualization(
+            final String originalTitle,
+            final OrderedBoundaryResidualProfile residualProfile,
+            final InwardOutlierDetectionResult outlierDetection,
+            final RefittedEllipseFillPreviewResult fillPreview,
+            final ProposedFillComponentAnalysisResult analysis) {
+        final int srcW = fillPreview.getImageWidth();
+        final int srcH = fillPreview.getImageHeight();
+        final int panelW = 340;
+        final int width = srcW + panelW;
+        final int height = Math.max(srcH, 420);
+        final ColorProcessor rgb = new ColorProcessor(width, height);
+        rgb.setColor(new Color(20, 20, 20));
+        rgb.fill();
+
+        paintPoints(rgb, fillPreview.getSelectedObservedLumenPixels(), new Color(110, 110, 110));
+        paintPoints(rgb, analysis.getNonAssociatedFillPixels(), new Color(255, 140, 0));
+
+        final ProposedFillComponent primary = analysis.getPrimaryIntervalAssociatedComponent();
+        final List<ProposedFillComponent> associated = analysis.getIntervalAssociatedComponents();
+        for (int i = 0; i < associated.size(); i++) {
+            final ProposedFillComponent c = associated.get(i);
+            if (primary != null && c.getComponentId() == primary.getComponentId()) {
+                continue;
+            }
+            paintPoints(rgb, c.getPixels(), new Color(0, 160, 0));
+        }
+        if (primary != null) {
+            paintPoints(rgb, primary.getPixels(), new Color(40, 255, 40));
+            final Rectangle b = primary.getBounds();
+            rgb.setColor(Color.WHITE);
+            rgb.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
+            final int labelX = clamp(b.x + b.width + 4, 0, srcW - 1);
+            final int labelY = clamp(b.y + 12, 12, srcH - 1);
+            rgb.drawString("PRIMARY INTERVAL-ASSOCIATED FILL", labelX, labelY);
+        }
+
+        final Set<Long> fillKeys = toPointKeySet(fillPreview.getRefittedProposedFillPixels());
+        final List<Point> seeds = analysis.getIntervalExteriorSeedPixels();
+        for (int i = 0; i < seeds.size(); i++) {
+            final Point seed = seeds.get(i);
+            final long key = packPoint(seed.x, seed.y);
+            if (fillKeys.contains(Long.valueOf(key))) {
+                drawFilledSquare(rgb, seed.x + 0.5, seed.y + 0.5, 2, Color.WHITE);
+            } else {
+                drawFilledSquare(rgb, seed.x + 0.5, seed.y + 0.5, 2, Color.RED);
+            }
+        }
+
+        if (outlierDetection.isIntervalSelected()) {
+            drawIntervalEdges(rgb, residualProfile, outlierDetection.getSelectedInterval(),
+                    Color.MAGENTA);
+        }
+        drawFittedEllipse(rgb, fillPreview.getRefittedEllipse(), Color.WHITE);
+        drawPreviewCardinalBoundary(rgb, fillPreview.getSelectedObservedLumenPixels(), Color.CYAN);
+
+        // Right text panel
+        rgb.setColor(new Color(10, 10, 10));
+        rgb.setRoi(srcW, 0, panelW, height);
+        rgb.fill();
+        rgb.setRoi(0, 0, width, height);
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        final String[] lines = new String[] {
+                "PROPOSED FILL COMPONENT DIAGNOSTICS",
+                "",
+                "orange = non-associated fill component",
+                "green = interval-associated fill component",
+                "bright green = primary associated component",
+                "white pixels = matched interval exterior seeds",
+                "red pixels = unmatched interval exterior seeds",
+                "magenta = selected inward interval",
+                "white outline = frozen refitted ellipse",
+                "cyan = observed lumen boundary",
+                "",
+                "components=" + analysis.getTotalComponentCount(),
+                "associated components=" + analysis.getIntervalAssociatedComponentCount(),
+                "non-associated components=" + analysis.getNonAssociatedComponentCount(),
+                "total proposed fill=" + analysis.getTotalProposedFillPixelCount(),
+                "associated fill=" + analysis.getIntervalAssociatedFillPixelCount(),
+                "non-associated fill=" + analysis.getNonAssociatedFillPixelCount(),
+                "associated fraction=" + fmt(analysis.getIntervalAssociatedFillFraction()),
+                "primary component=" + (primary == null ? "NONE" : String.valueOf(primary.getComponentId())),
+                "primary area=" + (primary == null ? 0 : primary.getArea()),
+                "primary / total=" + fmt(analysis.getPrimaryComponentFillFraction()),
+                "primary / associated=" + fmt(analysis.getPrimaryWithinAssociatedFraction()),
+                "matched seeds=" + analysis.getMatchedIntervalExteriorSeedPixelCount(),
+                "unmatched seeds=" + analysis.getUnmatchedIntervalExteriorSeedPixelCount(),
+                "",
+                "NO COMPONENT ACCEPTANCE",
+                "SOURCE IMAGE NOT MODIFIED",
+                "NO PRODUCTION RECONSTRUCTION"
+        };
+        int y = 18;
+        for (int i = 0; i < lines.length; i++) {
+            rgb.drawString(lines[i], srcW + 8, y);
+            y += 14;
+        }
+
+        new ImagePlus("Proposed Fill Components - " + originalTitle, rgb).show();
+    }
+
+    private static void showWholeVsAssociatedFillComparison(
+            final String originalTitle,
+            final OrderedBoundaryResidualProfile residualProfile,
+            final InwardOutlierDetectionResult outlierDetection,
+            final RefittedEllipseFillPreviewResult fillPreview,
+            final ProposedFillComponentAnalysisResult analysis) {
+        final int srcW = fillPreview.getImageWidth();
+        final int srcH = fillPreview.getImageHeight();
+        final int strip = 70;
+        final int width = srcW * 2;
+        final int height = srcH + strip;
+        final ColorProcessor rgb = new ColorProcessor(width, height);
+        rgb.setColor(Color.BLACK);
+        rgb.fill();
+
+        // Left: whole-ellipse fill
+        paintPointsOffset(rgb, fillPreview.getSelectedObservedLumenPixels(),
+                new Color(110, 110, 110), 0, strip);
+        paintPointsOffset(rgb, fillPreview.getRefittedProposedFillPixels(),
+                new Color(0, 180, 0), 0, strip);
+        drawPreviewCardinalBoundaryOffset(rgb, fillPreview.getPreviewSelectedLumenPixels(),
+                Color.CYAN, 0, strip);
+        drawFittedEllipseOffset(rgb, fillPreview.getRefittedEllipse(), Color.WHITE, 0, strip);
+
+        // Right: interval-associated only
+        paintPointsOffset(rgb, fillPreview.getSelectedObservedLumenPixels(),
+                new Color(110, 110, 110), srcW, strip);
+        paintPointsOffset(rgb, analysis.getIntervalAssociatedFillPixels(),
+                new Color(40, 255, 40), srcW, strip);
+        // Non-associated as dark orange dots (not in preview)
+        final List<Point> nonAssoc = analysis.getNonAssociatedFillPixels();
+        for (int i = 0; i < nonAssoc.size(); i++) {
+            final Point p = nonAssoc.get(i);
+            rgb.setColor(new Color(180, 90, 0));
+            rgb.drawPixel(p.x + srcW, p.y + strip);
+        }
+        drawPreviewCardinalBoundaryOffset(rgb,
+                analysis.getIntervalAssociatedPreviewLumenPixels(), Color.CYAN, srcW, strip);
+        drawFittedEllipseOffset(rgb, fillPreview.getRefittedEllipse(), Color.WHITE, srcW, strip);
+
+        if (outlierDetection.isIntervalSelected()) {
+            drawIntervalEdgesOffset(rgb, residualProfile, outlierDetection.getSelectedInterval(),
+                    Color.MAGENTA, 0, strip);
+            drawIntervalEdgesOffset(rgb, residualProfile, outlierDetection.getSelectedInterval(),
+                    Color.MAGENTA, srcW, strip);
+        }
+
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font(Font.MONOSPACED, Font.BOLD, 14));
+        rgb.drawString("WHOLE ELLIPSE FILL", 12, 24);
+        rgb.drawString("INTERVAL-ASSOCIATED FILL ONLY", srcW + 12, 24);
+        rgb.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        rgb.drawString("whole fill pixels=" + analysis.getTotalProposedFillPixelCount()
+                + "  associated fill pixels=" + analysis.getIntervalAssociatedFillPixelCount()
+                + "  non-associated fill pixels=" + analysis.getNonAssociatedFillPixelCount(),
+                12, 44);
+        rgb.drawString("whole circularity=" + fmt(analysis.getWholeEllipseCircularity())
+                + "  associated circularity="
+                + fmt(analysis.getIntervalAssociatedPreviewCircularity())
+                + "  original circularity="
+                + fmt(fillPreview.getOriginalCircularity()),
+                12, 58);
+        rgb.drawString("whole circularity change="
+                + fmt(analysis.getWholeEllipseCircularityChange())
+                + "  associated circularity change="
+                + fmt(analysis.getIntervalAssociatedCircularityChange()),
+                12, 72);
+
+        new ImagePlus("Whole Ellipse vs Interval-Associated Fill - " + originalTitle, rgb).show();
+    }
+
+    private static void drawIntervalEdges(
+            final ColorProcessor rgb,
+            final OrderedBoundaryResidualProfile residualProfile,
+            final InwardOutlierInterval interval,
+            final Color color) {
+        final List<OrderedBoundaryResidualProfile.Sample> samples = residualProfile.getSamples();
+        rgb.setColor(color);
+        for (final Integer indexObj : interval.getOrderedBoundaryIndices()) {
+            final OrderedBoundaryResidualProfile.Sample sample = samples.get(indexObj.intValue());
+            drawClippedLine(rgb, sample.getEdgeStartX(), sample.getEdgeStartY(),
+                    sample.getEdgeEndX(), sample.getEdgeEndY());
+        }
+    }
+
+    private static void drawIntervalEdgesOffset(
+            final ColorProcessor rgb,
+            final OrderedBoundaryResidualProfile residualProfile,
+            final InwardOutlierInterval interval,
+            final Color color,
+            final int ox,
+            final int oy) {
+        final List<OrderedBoundaryResidualProfile.Sample> samples = residualProfile.getSamples();
+        rgb.setColor(color);
+        for (final Integer indexObj : interval.getOrderedBoundaryIndices()) {
+            final OrderedBoundaryResidualProfile.Sample sample = samples.get(indexObj.intValue());
+            drawClippedLine(rgb,
+                    sample.getEdgeStartX() + ox, sample.getEdgeStartY() + oy,
+                    sample.getEdgeEndX() + ox, sample.getEdgeEndY() + oy);
+        }
+    }
+
+    private static void paintPointsOffset(
+            final ColorProcessor rgb,
+            final List<Point> points,
+            final Color color,
+            final int ox,
+            final int oy) {
+        rgb.setColor(color);
+        for (int i = 0; i < points.size(); i++) {
+            final Point p = points.get(i);
+            rgb.drawPixel(p.x + ox, p.y + oy);
+        }
+    }
+
+    private static void drawPreviewCardinalBoundaryOffset(
+            final ColorProcessor rgb,
+            final List<Point> members,
+            final Color color,
+            final int ox,
+            final int oy) {
+        final Set<Long> keys = toPointKeySet(members);
+        final int[] dx = {0, 1, 0, -1};
+        final int[] dy = {-1, 0, 1, 0};
+        rgb.setColor(color);
+        for (int i = 0; i < members.size(); i++) {
+            final Point p = members.get(i);
+            for (int d = 0; d < dx.length; d++) {
+                final int nx = p.x + dx[d];
+                final int ny = p.y + dy[d];
+                if (!keys.contains(Long.valueOf(packPoint(nx, ny)))) {
+                    if (dx[d] == 0 && dy[d] == -1) {
+                        drawClippedLine(rgb, p.x + ox, p.y + oy, p.x + 1 + ox, p.y + oy);
+                    } else if (dx[d] == 1 && dy[d] == 0) {
+                        drawClippedLine(rgb, p.x + 1 + ox, p.y + oy, p.x + 1 + ox, p.y + 1 + oy);
+                    } else if (dx[d] == 0 && dy[d] == 1) {
+                        drawClippedLine(rgb, p.x + ox, p.y + 1 + oy, p.x + 1 + ox, p.y + 1 + oy);
+                    } else {
+                        drawClippedLine(rgb, p.x + ox, p.y + oy, p.x + ox, p.y + 1 + oy);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void drawFittedEllipseOffset(
+            final ColorProcessor rgb,
+            final EllipseModel ellipse,
+            final Color color,
+            final int ox,
+            final int oy) {
+        rgb.setColor(color);
+        Point2D.Double previous = null;
+        Point2D.Double first = null;
+        for (int i = 0; i < ELLIPSE_SAMPLES; i++) {
+            final double t = 2.0 * Math.PI * i / ELLIPSE_SAMPLES;
+            final Point2D.Double point = ellipse.pointAt(t);
+            if (first == null) {
+                first = point;
+            }
+            if (previous != null) {
+                drawClippedLine(rgb, previous.x + ox, previous.y + oy, point.x + ox, point.y + oy);
+            }
+            previous = point;
+        }
+        if (previous != null && first != null) {
+            drawClippedLine(rgb, previous.x + ox, previous.y + oy, first.x + ox, first.y + oy);
+        }
+    }
+
+    private static Set<Long> toPointKeySet(final List<Point> points) {
+        final Set<Long> keys = new HashSet<Long>(points.size() * 2);
+        for (int i = 0; i < points.size(); i++) {
+            final Point p = points.get(i);
+            keys.add(Long.valueOf(packPoint(p.x, p.y)));
+        }
+        return keys;
+    }
+
+    private static long packPoint(final int x, final int y) {
+        return (((long) x) << 32) ^ (y & 0xffffffffL);
+    }
+
     private static void showSummaryDialog(
             final InitialEllipseAnalysisResult result,
             final OrderedBoundaryResidualProfile residualProfile,
             final InwardOutlierDetectionResult outlierDetection,
             final SingleIntervalEllipseRefitResult refitResult,
-            final RefittedEllipseFillPreviewResult fillPreview) {
+            final RefittedEllipseFillPreviewResult fillPreview,
+            final ProposedFillComponentAnalysisResult componentAnalysis) {
         final StringBuilder message = new StringBuilder();
-        if (fillPreview != null) {
-            message.append("Refitted ellipse fill preview completed.\n\n");
+        if (componentAnalysis != null) {
+            final ProposedFillComponent primary =
+                    componentAnalysis.getPrimaryIntervalAssociatedComponent();
+            final RefittedEllipseFillPreviewResult whole =
+                    componentAnalysis.getWholeEllipsePreview();
+            message.append("Proposed-fill component diagnostics completed.\n\n");
+            message.append("Total proposed-fill components: ")
+                    .append(componentAnalysis.getTotalComponentCount()).append("\n");
+            message.append("Interval-associated components: ")
+                    .append(componentAnalysis.getIntervalAssociatedComponentCount()).append("\n");
+            message.append("Non-associated components: ")
+                    .append(componentAnalysis.getNonAssociatedComponentCount()).append("\n\n");
+            message.append("Total proposed-fill pixels: ")
+                    .append(componentAnalysis.getTotalProposedFillPixelCount()).append("\n");
+            message.append("Interval-associated fill pixels: ")
+                    .append(componentAnalysis.getIntervalAssociatedFillPixelCount()).append("\n");
+            message.append("Non-associated fill pixels: ")
+                    .append(componentAnalysis.getNonAssociatedFillPixelCount()).append("\n");
+            message.append("Interval-associated fill fraction: ")
+                    .append(fmt(componentAnalysis.getIntervalAssociatedFillFraction()))
+                    .append("\n\n");
+            message.append("Primary associated component ID: ")
+                    .append(primary == null ? "NONE" : String.valueOf(primary.getComponentId()))
+                    .append("\n");
+            message.append("Primary component area: ")
+                    .append(primary == null ? 0 : primary.getArea()).append("\n");
+            message.append("Primary / total fill fraction: ")
+                    .append(fmt(componentAnalysis.getPrimaryComponentFillFraction())).append("\n");
+            message.append("Primary / associated fill fraction: ")
+                    .append(fmt(componentAnalysis.getPrimaryWithinAssociatedFraction()))
+                    .append("\n\n");
+            message.append("Interval exterior edges: ")
+                    .append(componentAnalysis.getIntervalExteriorEdgeCount()).append("\n");
+            message.append("Unique exterior seed pixels: ")
+                    .append(componentAnalysis.getUniqueIntervalExteriorSeedPixelCount())
+                    .append("\n");
+            message.append("Matched exterior seed pixels: ")
+                    .append(componentAnalysis.getMatchedIntervalExteriorSeedPixelCount())
+                    .append("\n");
+            message.append("Unmatched exterior seed pixels: ")
+                    .append(componentAnalysis.getUnmatchedIntervalExteriorSeedPixelCount())
+                    .append("\n\n");
+            message.append("Whole-ellipse preview:\n");
+            message.append("area=").append(whole.getPreviewArea()).append("\n");
+            message.append("perimeter=").append(whole.getPreviewPerimeter()).append("\n");
+            message.append("circularity=")
+                    .append(fmt(componentAnalysis.getWholeEllipseCircularity())).append("\n");
+            message.append("circularity change=")
+                    .append(fmt(componentAnalysis.getWholeEllipseCircularityChange()))
+                    .append("\n\n");
+            message.append("Interval-associated preview:\n");
+            message.append("area=")
+                    .append(componentAnalysis.getIntervalAssociatedPreviewArea()).append("\n");
+            message.append("perimeter=")
+                    .append(componentAnalysis.getIntervalAssociatedPreviewPerimeter())
+                    .append("\n");
+            message.append("circularity=")
+                    .append(fmt(componentAnalysis.getIntervalAssociatedPreviewCircularity()))
+                    .append("\n");
+            message.append("circularity change=")
+                    .append(fmt(componentAnalysis.getIntervalAssociatedCircularityChange()))
+                    .append("\n\n");
+            message.append("No component was accepted or rejected.\n");
+            message.append("The source image was not modified.\n");
+            message.append("Production reconstruction was not applied.");
+        } else if (fillPreview != null) {
+            message.append("Refitted ellipse fill preview completed.\n");
             message.append("Observed lumen area: ")
                     .append(fillPreview.getSelectedObservedLumenArea()).append("\n");
-            message.append("Refitted proposed fill pixels: ")
-                    .append(fillPreview.getRefittedProposedFillCount()).append("\n");
-            message.append("Wood proposed fill: ")
-                    .append(fillPreview.getRefittedWoodFillCount()).append("\n");
-            message.append("Ray proposed fill: ")
-                    .append(fillPreview.getRefittedRayFillCount()).append("\n");
-            message.append("Background proposed fill: ")
-                    .append(fillPreview.getRefittedBackgroundFillCount()).append("\n");
-            message.append("Other proposed fill: ")
-                    .append(fillPreview.getRefittedOtherClassFillCount()).append("\n");
-            message.append("Shared baseline/refit fill: ")
-                    .append(fillPreview.getSharedProposedFillCount()).append("\n");
-            message.append("Refit-only fill: ")
-                    .append(fillPreview.getRefitOnlyProposedFillCount()).append("\n");
-            message.append("Baseline-only fill: ")
-                    .append(fillPreview.getBaselineOnlyProposedFillCount()).append("\n");
-            message.append("Observed Lumen outside refitted ellipse: ")
-                    .append(fillPreview.getSelectedLumenOutsideRefittedEllipseCount())
-                    .append("\n");
-            message.append("Other Lumen inside refitted ellipse: ")
-                    .append(fillPreview.getOtherLumenInsideRefittedEllipseCount()).append("\n");
-            message.append("Would overlap another Lumen component: ")
-                    .append(fillPreview.isWouldOverlapAnotherLumenComponent()).append("\n");
-            message.append("Original perimeter: ")
-                    .append(fillPreview.getOriginalPerimeter()).append("\n");
-            message.append("Preview perimeter: ")
-                    .append(fillPreview.getPreviewPerimeter()).append("\n");
-            message.append("Original circularity: ")
-                    .append(fmt(fillPreview.getOriginalCircularity())).append("\n");
-            message.append("Preview circularity: ")
-                    .append(fmt(fillPreview.getPreviewCircularity())).append("\n");
-            message.append("Circularity change: ")
-                    .append(fmt(fillPreview.getCircularityChange())).append("\n");
-            message.append("Added area fraction: ")
-                    .append(fmt(fillPreview.getAddedAreaFraction())).append("\n");
-            message.append("Ellipse area / observed Lumen area: ")
-                    .append(fmt(fillPreview.getEllipseAreaToObservedLumenAreaRatio()))
-                    .append("\n");
-            message.append("\nThe preview is additive only.\n");
-            message.append("Observed Lumen pixels were not removed.\n");
             message.append("The source image was not modified.\n");
-            message.append("The refitted ellipse has not been accepted.\n");
             message.append("Production reconstruction was not applied.");
         } else {
-            final EllipseFitResult fit = result.getEllipseFitResult();
-            final EllipseModel ellipse = fit.getFittedEllipse();
-            message.append("Initial free ellipse fit completed.\n\n");
+            message.append("Initial free ellipse fit completed.\n");
             message.append("Selected lumen area: ")
                     .append(result.getSelectedComponentArea()).append("\n");
             message.append("Interval selected: ")
                     .append(outlierDetection.isIntervalSelected()).append("\n");
-            message.append("Selection reason: ")
-                    .append(outlierDetection.getSelectionReason()).append("\n");
             message.append("Ordered outer-boundary edges: ")
                     .append(residualProfile.getSamples().size()).append("\n");
-            message.append("Ellipse center: (").append(fmt(ellipse.getCenterX())).append(", ")
-                    .append(fmt(ellipse.getCenterY())).append(")\n");
             if (refitResult != null) {
-                message.append("\nRefit completed but fill preview was not generated.\n");
+                message.append("Refit completed but fill preview was not generated.\n");
             }
-            message.append("\nThe source image was not modified.\n");
+            message.append("The source image was not modified.\n");
             message.append("Production reconstruction was not applied.");
         }
         IJ.showMessage("Robust Ellipse Reconstruction Prototype", message.toString());

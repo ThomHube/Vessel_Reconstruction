@@ -5,7 +5,7 @@
 - **Algorithm:** Robust Ellipse Reconstruction
 - **Project directory:** `/home/thomas/IdeaProjects/minimal-ij1-plugin-ellipse`
 - **Artifact:** `VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar`
-- **Status:** Initial free-ellipse fit, diagnostic inward-outlier interval detection, single-interval diagnostic refit, and source-safe fill preview implemented; ellipse acceptance and production reconstruction remain unimplemented
+- **Status:** Initial free-ellipse fit, inward-outlier interval detection, single-interval diagnostic refit, source-safe fill preview, and proposed-fill component association diagnostics implemented; component/ellipse acceptance and production reconstruction remain unimplemented
 - **Independence:** This repository does not contain the legacy contour bridgepoint algorithm
 
 ## Mathematical free-ellipse stage
@@ -56,6 +56,14 @@ Implemented:
 - exposed-edge preview perimeter
 - secondary circularity diagnostics
 - source-image-safe visualization
+- 8-connected proposed-fill component extraction
+- exact selected-Lumen cardinal contact diagnostics
+- interval-exterior seed derivation
+- exact interval-to-fill component association
+- deterministic primary associated-component identification
+- whole-ellipse versus interval-associated fill comparison
+- interval-associated preview perimeter and circularity diagnostics
+- unobscured diagnostic visualization
 
 The initial ellipse may be influenced by the artifact because all observed
 boundary points are included.
@@ -63,20 +71,19 @@ boundary points are included.
 A selected lumen with an ambiguous high-degree lattice boundary vertex is
 rejected in this stage rather than resolved speculatively.
 
-Detection, single-interval refit, and fill preview are diagnostic only. The
-selected interval is excluded only from mathematical fit support. The fill
-preview is additive and in-memory. No classified pixels are removed or changed.
-The comparison baseline uses all and only selected outer-boundary midpoints
-(not the original all-exposed-boundary image fit). Circularity is calculated
-only to describe the preview; it does not control the ellipse fit or
-automatically approve reconstruction. Prototype constants
-(`NORMALIZED_MAD_SCALE`, `CORE_SIGMA_MULTIPLIER`, `EXPANSION_SIGMA_MULTIPLIER`,
-`MIN_INTERVAL_EDGE_COUNT`, `MAX_INTERVAL_BOUNDARY_FRACTION`,
-`MIN_DOMINANCE_RATIO`) are not final biological thresholds.
+Detection, single-interval refit, fill preview, and component association are
+diagnostic only. The selected interval is excluded only from mathematical fit
+support. Fill previews are additive and in-memory. No classified pixels are
+removed or changed. The interval-associated preview is diagnostic only; no
+component is currently accepted or rejected. Circularity remains a secondary
+diagnostic and does not control the ellipse fit or automatically approve
+reconstruction. Prototype constants are not final biological thresholds.
 
 Not yet implemented:
 
+- component acceptance thresholds
 - ellipse acceptance
+- automatic choice between whole and associated fill
 - automatic reconstruction approval
 - source-image modification
 - saving a reconstructed classified image
@@ -87,6 +94,7 @@ Not yet implemented:
 - stopping based on parameter stability
 - reconstruction
 - pixel modification
+- production reconstruction
 
 ## Fixed classifier mapping
 
