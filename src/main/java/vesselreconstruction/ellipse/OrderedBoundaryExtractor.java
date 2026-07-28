@@ -147,6 +147,7 @@ public final class OrderedBoundaryExtractor {
             final Set<Long> membership) {
         final int totalExposed = exposed.size();
         final Set<DirectedPixelEdge> unused = new HashSet<DirectedPixelEdge>(exposed);
+        final Set<DirectedPixelEdge> exposedSet = new HashSet<DirectedPixelEdge>(exposed);
         final Map<Long, List<DirectedPixelEdge>> outgoing =
                 buildOutgoingLookup(exposed);
 
@@ -195,7 +196,7 @@ public final class OrderedBoundaryExtractor {
                     throw new IllegalArgumentException("OPEN_BOUNDARY_LOOP");
                 }
                 if (options.size() > 1) {
-                    throw new AmbiguousBoundaryVertexException(
+                    final AmbiguousBoundaryVertexDiagnostic diagnostic =
                             buildAmbiguityDiagnostic(
                                     loopNumber,
                                     steps,
@@ -208,7 +209,25 @@ public final class OrderedBoundaryExtractor {
                                     outgoing,
                                     unused,
                                     options,
-                                    membership));
+                                    membership);
+                    final DirectedPixelEdge resolved = selectSameFaceSuccessorAtDiagonalContact(
+                            diagnostic,
+                            exposedSet,
+                            unused,
+                            endX,
+                            endY);
+                    if (resolved == null) {
+                        throw new AmbiguousBoundaryVertexException(diagnostic);
+                    }
+                    validateResolvedSuccessor(
+                            resolved,
+                            current,
+                            endX,
+                            endY,
+                            exposedSet,
+                            unused);
+                    current = resolved;
+                    continue;
                 }
                 current = options.get(0);
             }
@@ -222,6 +241,126 @@ public final class OrderedBoundaryExtractor {
             throw new IllegalArgumentException("EXPOSED_EDGE_ACCOUNTING_MISMATCH");
         }
         return Collections.unmodifiableList(loops);
+    }
+
+    /**
+     * Narrow RIGHT_TURN_SAME_FACE resolution for exact diagonal checkerboard
+     * contacts. Returns the unique RIGHT_TURN successor when every condition
+     * holds; otherwise null. Does not mutate any collection or edge state.
+     */
+    static DirectedPixelEdge selectSameFaceSuccessorAtDiagonalContact(
+            final AmbiguousBoundaryVertexDiagnostic diagnostic,
+            final Set<DirectedPixelEdge> exposedSet,
+            final Set<DirectedPixelEdge> unused,
+            final int vertexX,
+            final int vertexY) {
+        if (diagnostic == null || exposedSet == null || unused == null) {
+            return null;
+        }
+        final String occupancy = diagnostic.getLocalOccupancyPattern();
+        if (!AmbiguousBoundaryVertexDiagnostic.DIAGONAL_NW_SE.equals(occupancy)
+                && !AmbiguousBoundaryVertexDiagnostic.DIAGONAL_NE_SW.equals(occupancy)) {
+            return null;
+        }
+
+        final List<DirectedPixelEdge> unusedOutgoing = diagnostic.getUnusedOutgoingEdges();
+        final List<String> turns = diagnostic.getCandidateTurnRelations();
+        if (unusedOutgoing.size() != 2 || turns.size() != 2) {
+            return null;
+        }
+
+        int rightCount = 0;
+        int leftCount = 0;
+        DirectedPixelEdge rightTurnEdge = null;
+        DirectedPixelEdge leftTurnEdge = null;
+        for (int i = 0; i < turns.size(); i++) {
+            final String turn = turns.get(i);
+            if (AmbiguousBoundaryVertexDiagnostic.STRAIGHT.equals(turn)
+                    || AmbiguousBoundaryVertexDiagnostic.REVERSE.equals(turn)) {
+                return null;
+            }
+            if (AmbiguousBoundaryVertexDiagnostic.RIGHT_TURN.equals(turn)) {
+                rightCount++;
+                rightTurnEdge = unusedOutgoing.get(i);
+            } else if (AmbiguousBoundaryVertexDiagnostic.LEFT_TURN.equals(turn)) {
+                leftCount++;
+                leftTurnEdge = unusedOutgoing.get(i);
+            } else {
+                return null;
+            }
+        }
+        if (rightCount != 1 || leftCount != 1 || rightTurnEdge == null || leftTurnEdge == null) {
+            return null;
+        }
+
+        if (!startsAt(rightTurnEdge, vertexX, vertexY)
+                || !startsAt(leftTurnEdge, vertexX, vertexY)) {
+            return null;
+        }
+        if (!isCanonicalUnitEdge(rightTurnEdge) || !isCanonicalUnitEdge(leftTurnEdge)) {
+            return null;
+        }
+        if (!exposedSet.contains(rightTurnEdge) || !exposedSet.contains(leftTurnEdge)) {
+            return null;
+        }
+        if (!unused.contains(rightTurnEdge) || !unused.contains(leftTurnEdge)) {
+            return null;
+        }
+        if (rightTurnEdge.equals(diagnostic.getIncomingEdge())) {
+            return null;
+        }
+        // LEFT_TURN must remain unused; do not consume it here.
+        if (!unused.contains(leftTurnEdge)) {
+            return null;
+        }
+        return rightTurnEdge;
+    }
+
+    private static void validateResolvedSuccessor(
+            final DirectedPixelEdge successor,
+            final DirectedPixelEdge incoming,
+            final int vertexX,
+            final int vertexY,
+            final Set<DirectedPixelEdge> exposedSet,
+            final Set<DirectedPixelEdge> unused) {
+        if (successor == null) {
+            throw new IllegalArgumentException("Resolved successor must not be null");
+        }
+        if (!startsAt(successor, vertexX, vertexY)) {
+            throw new IllegalArgumentException(
+                    "Resolved successor must start at the current vertex");
+        }
+        if (!isCanonicalUnitEdge(successor)) {
+            throw new IllegalArgumentException(
+                    "Resolved successor must be a canonical unit lattice edge");
+        }
+        if (!exposedSet.contains(successor)) {
+            throw new IllegalArgumentException(
+                    "Resolved successor must belong to the exposed-edge set");
+        }
+        if (!unused.contains(successor)) {
+            throw new IllegalArgumentException("Resolved successor must be unused");
+        }
+        if (successor.equals(incoming)) {
+            throw new IllegalArgumentException(
+                    "Resolved successor must differ from the incoming edge");
+        }
+    }
+
+    private static boolean startsAt(
+            final DirectedPixelEdge edge,
+            final int vertexX,
+            final int vertexY) {
+        return edge.getStartX() == vertexX && edge.getStartY() == vertexY;
+    }
+
+    private static boolean isCanonicalUnitEdge(final DirectedPixelEdge edge) {
+        final int dx = edge.getEndX() - edge.getStartX();
+        final int dy = edge.getEndY() - edge.getStartY();
+        if (dx != 0 && dy != 0) {
+            return false;
+        }
+        return Math.abs(dx) + Math.abs(dy) == 1;
     }
 
     private static AmbiguousBoundaryVertexDiagnostic buildAmbiguityDiagnostic(

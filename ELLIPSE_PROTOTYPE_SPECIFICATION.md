@@ -72,21 +72,34 @@ boundary points are included.
 
 8-connected lumen components can contain diagonal pixel contacts. A diagonal
 contact may create a lattice vertex with multiple unused outgoing exposed
-directed edges. The current extractor still rejects such a vertex rather than
-resolving it speculatively. Exact first-failure diagnostics are now available
-(`AMBIGUOUS_BOUNDARY_VERTEX`), including surrounding-cell occupancy, incident
-edges, unused outgoing candidates in evaluation order, and candidate turn
-relations. No successor policy has been chosen yet. The next correction must
-be based on the observed occupancy pattern and edge state.
+directed edges.
 
-On `AMBIGUOUS_BOUNDARY_VERTEX`, the plugin also runs an ImageJ core boundary
-reference audit against ThresholdToSelection, Wand FOUR_CONNECTED, and Wand
-EIGHT_CONNECTED. This audit compares reference contours to the expected exposed
-directed-edge set and records successor turn behavior at the failing vertex.
-It is diagnostic only and does not select a production successor.
+ImageJ reference evidence for exact checkerboard contacts:
 
-`AMBIGUOUS_BOUNDARY_VERTEX` is currently a conservative diagnostic stop, not a
-reconstruction rejection and not evidence that the ellipse method failed.
+- ThresholdToSelection fully accounted for the exposed-edge union, but its main
+  left-turn outline contained repeated non-closing vertices
+- Wand EIGHT_CONNECTED chose the left turn and returned one seed outline
+- Wand FOUR_CONNECTED chose the right turn and returned a simple seed outline
+
+The project therefore adopts `RIGHT_TURN_SAME_FACE` only for exact diagonal
+checkerboard occupancy (`DIAGONAL_NW_SE` or `DIAGONAL_NE_SW` with exactly one
+`RIGHT_TURN` and one `LEFT_TURN` candidate). The extractor continues tracing
+all remaining unused exposed edges, unlike a single Wand invocation, and
+therefore produces separate simple loops with complete exposed-edge accounting.
+
+- component membership remains 8-connected
+- boundary loops at point contacts are separate
+- all other ambiguous lattice configurations remain conservative failures
+- ImageJ boundary APIs remain diagnostic references
+- no external contour dependency was added
+- ellipse fitting and biological residual logic remain unchanged
+
+`RIGHT_TURN_SAME_FACE` is a narrow digital-topology rule. It does not detect
+artifacts. It does not approve reconstruction. It does not modify any
+classified pixels.
+
+On unresolved `AMBIGUOUS_BOUNDARY_VERTEX`, the plugin still runs the ImageJ
+core boundary reference audit and stops without reconstruction.
 
 ### External / core sources evaluated
 
@@ -110,9 +123,9 @@ reconstruction rejection and not evidence that the ellipse method failed.
 - the custom free-ellipse fitter remains in use
 - the biological residual, interval and fill-association logic remains custom
 
-The diagonal checkerboard topology policy has not yet been chosen. A production
-successor rule will be implemented only after comparing established ImageJ
-reference behavior on the exact failing geometry.
+The diagonal checkerboard topology policy for exact contacts is
+`RIGHT_TURN_SAME_FACE`. All other ambiguous lattice configurations remain
+rejected.
 
 Detection, single-interval refit, fill preview, and component association are
 diagnostic only. The selected interval is excluded only from mathematical fit

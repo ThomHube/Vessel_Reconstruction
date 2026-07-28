@@ -51,6 +51,11 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         IJ.log("Component acceptance: NOT IMPLEMENTED");
         IJ.log("Source pixel modification: NOT APPLIED");
         IJ.log("Production reconstruction: NOT APPLIED");
+        IJ.log("Diagonal boundary-contact policy:");
+        IJ.log("Exact checkerboard contact = RIGHT_TURN_SAME_FACE");
+        IJ.log("All other ambiguous vertices = REJECTED");
+        IJ.log("Component membership = 8_CONNECTED");
+        IJ.log("Boundary loops at point contacts = SEPARATE_SIMPLE_LOOPS");
 
         IJ.log("Weka class-number mapping:");
         IJ.log("Class " + ClassifierLabels.WOOD + " = "
