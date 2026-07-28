@@ -59,21 +59,27 @@ The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
 - circular contiguous interval extraction
 - deterministic dominant-interval selection
 - diagnostic interval visualization
+- outer-boundary-only baseline ellipse fit
+- exclusion of exactly one diagnostically selected inward interval from fit support
+- one free-ellipse refit
+- baseline-versus-refit parameter diagnostics
+- baseline-versus-refit residual diagnostics
+- diagnostic comparison visualization
 
-The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse to all exposed-edge midpoint support points, orders the selected outer boundary, detects a candidate contiguous inward-outlier interval for diagnostics, and shows residual/interval overlays.
+The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse to all exposed-edge midpoint support points, orders the selected outer boundary, detects a candidate contiguous inward-outlier interval, and when selected performs exactly one diagnostic outer-boundary baseline fit plus one interval-excluded refit for comparison.
 
-The initial ellipse may be influenced by the artifact because all observed boundary points are included.
+The initial image ellipse may be influenced by the artifact because all observed boundary points are included. The comparison baseline uses all and only selected outer-boundary midpoints.
 
 A selected lumen with an ambiguous high-degree lattice boundary vertex is rejected in this stage rather than resolved speculatively.
 
-Inward-outlier interval detection is diagnostic only. Prototype constants (normalized MAD scale, core/expansion sigma multipliers, minimum interval length, maximum boundary fraction, dominance ratio) are not final biological thresholds.
+Inward-outlier interval detection and single-interval refit are diagnostic only. The selected interval is excluded only from mathematical fit support. No classified pixels are removed or changed. Prototype constants are not final biological thresholds.
 
 ### Not implemented
 
-- support-point exclusion from fitting
-- ellipse refitting
-- iterative convergence
-- ellipse acceptance
+- repeated interval detection after refitting
+- iterative support-point exclusion
+- stopping based on parameter stability
+- final ellipse acceptance
 - proposed fill acceptance
 - source-image modification
 - reconstruction

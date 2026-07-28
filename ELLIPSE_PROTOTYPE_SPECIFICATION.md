@@ -5,7 +5,7 @@
 - **Algorithm:** Robust Ellipse Reconstruction
 - **Project directory:** `/home/thomas/IdeaProjects/minimal-ij1-plugin-ellipse`
 - **Artifact:** `VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar`
-- **Status:** Initial free-ellipse fit plus diagnostic inward-outlier interval detection implemented; support-point exclusion, refitting, acceptance, and reconstruction remain unimplemented
+- **Status:** Initial free-ellipse fit, diagnostic inward-outlier interval detection, and single-interval diagnostic refit implemented; iterative exclusion, acceptance, and reconstruction remain unimplemented
 - **Independence:** This repository does not contain the legacy contour bridgepoint algorithm
 
 ## Mathematical free-ellipse stage
@@ -42,6 +42,12 @@ Implemented:
 - circular contiguous expansion-run extraction (no smoothing, no gap bridging)
 - deterministic dominant inward-outlier interval selection
 - diagnostic interval visualization on the boundary and residual-profile plot
+- outer-boundary-only baseline ellipse fit
+- exclusion of exactly one diagnostically selected inward interval from fit support
+- one free-ellipse refit (`SingleIntervalEllipseRefitter`)
+- baseline-versus-refit parameter diagnostics
+- baseline-versus-refit residual diagnostics
+- diagnostic comparison visualization
 
 The initial ellipse may be influenced by the artifact because all observed
 boundary points are included.
@@ -49,18 +55,21 @@ boundary points are included.
 A selected lumen with an ambiguous high-degree lattice boundary vertex is
 rejected in this stage rather than resolved speculatively.
 
-Inward-outlier interval detection is diagnostic only. The selected interval does
-not exclude support points and does not trigger a refit. Prototype constants
+Inward-outlier interval detection and the single-interval refit are diagnostic
+only. The selected interval is excluded only from mathematical fit support. No
+classified pixels are removed or changed. The comparison baseline uses all and
+only selected outer-boundary midpoints (not the original all-exposed-boundary
+image fit). Prototype constants
 (`NORMALIZED_MAD_SCALE`, `CORE_SIGMA_MULTIPLIER`, `EXPANSION_SIGMA_MULTIPLIER`,
 `MIN_INTERVAL_EDGE_COUNT`, `MAX_INTERVAL_BOUNDARY_FRACTION`,
 `MIN_DOMINANCE_RATIO`) are not final biological thresholds.
 
 Not yet implemented:
 
-- support-point exclusion from fitting
-- ellipse refitting
-- iterative convergence
-- ellipse acceptance
+- repeated interval detection after refitting
+- iterative support-point exclusion
+- stopping based on parameter stability
+- final ellipse acceptance
 - proposed fill acceptance
 - source-image modification
 - reconstruction
