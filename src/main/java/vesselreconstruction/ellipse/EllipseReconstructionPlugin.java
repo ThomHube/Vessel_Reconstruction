@@ -155,9 +155,37 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         }
 
         logOrderedBoundary(residualProfile);
-        showVisualization(image.getTitle(), classified, result, residualProfile);
-        showResidualProfilePlot(image.getTitle(), residualProfile);
-        showSummaryDialog(result, residualProfile);
+
+        final InwardOutlierDetectionResult outlierDetection;
+        try {
+            outlierDetection = new InwardOutlierIntervalDetector().detect(residualProfile);
+        } catch (IllegalArgumentException ex) {
+            IJ.log("Inward-outlier interval detection failed: " + ex.getMessage());
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Inward-outlier interval detection failed:\n" + ex.getMessage());
+            return;
+        } catch (RuntimeException ex) {
+            IJ.log("Inward-outlier interval detection failed: " + ex.getMessage());
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Inward-outlier interval detection failed:\n"
+                            + String.valueOf(ex.getMessage()));
+            return;
+        }
+
+        if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+            IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Internal error: classified image was modified.");
+            return;
+        }
+
+        logInwardOutlierDetection(outlierDetection);
+        showVisualization(image.getTitle(), classified, result, residualProfile, outlierDetection);
+        showResidualProfilePlot(image.getTitle(), residualProfile, outlierDetection);
+        showSummaryDialog(result, residualProfile, outlierDetection);
     }
 
     private static void logResultPixelHistogram(final ByteProcessor classified) {
@@ -283,18 +311,93 @@ public final class EllipseReconstructionPlugin implements PlugIn {
 
         IJ.log("IMPORTANT:");
         IJ.log("Boundary residuals are now ordered around the selected outer loop.");
-        IJ.log("No residual threshold was applied.");
-        IJ.log("No inward interval was selected.");
         IJ.log("No support points were excluded.");
         IJ.log("The ellipse was not refitted.");
         IJ.log("No pixels were changed.");
+    }
+
+    private static void logInwardOutlierDetection(final InwardOutlierDetectionResult detection) {
+        IJ.log("Inward-outlier interval detection:");
+        IJ.log("robustScale,coreThreshold,expansionThreshold,candidateCount,"
+                + "intervalSelected,selectionReason,dominanceRatio");
+        IJ.log(fmt(detection.getRobustScale())
+                + "," + fmt(detection.getCoreThreshold())
+                + "," + fmt(detection.getExpansionThreshold())
+                + "," + detection.getCandidateIntervals().size()
+                + "," + detection.isIntervalSelected()
+                + "," + sanitize(detection.getSelectionReason())
+                + "," + fmtDominance(detection.getDominanceRatio()));
+
+        IJ.log("Inward-outlier interval candidates:");
+        IJ.log("candidateNumber,startIndex,endIndex,wrapsAround,edgeCount,boundaryFraction,"
+                + "corePointCount,minimumResidual,minimumResidualIndex,meanResidual,"
+                + "integratedInwardExcess,containsGlobalMinimum,startX,startY,endX,endY,selected");
+        final List<InwardOutlierInterval> candidates = detection.getCandidateIntervals();
+        for (int i = 0; i < candidates.size(); i++) {
+            final InwardOutlierInterval interval = candidates.get(i);
+            final boolean selected = detection.isIntervalSelected()
+                    && detection.getSelectedInterval().equals(interval);
+            final Point2D.Double start = interval.getStartSupportMidpoint();
+            final Point2D.Double end = interval.getEndSupportMidpoint();
+            IJ.log((i + 1)
+                    + "," + interval.getStartIndex()
+                    + "," + interval.getEndIndex()
+                    + "," + interval.isWrapsAround()
+                    + "," + interval.getEdgeCount()
+                    + "," + fmt(interval.getBoundaryFraction())
+                    + "," + interval.getCorePointCount()
+                    + "," + fmt(interval.getMinimumResidual())
+                    + "," + interval.getMinimumResidualIndex()
+                    + "," + fmt(interval.getMeanResidual())
+                    + "," + fmt(interval.getIntegratedInwardExcess())
+                    + "," + interval.isContainsGlobalMinimum()
+                    + "," + fmt(start.x)
+                    + "," + fmt(start.y)
+                    + "," + fmt(end.x)
+                    + "," + fmt(end.y)
+                    + "," + selected);
+        }
+
+        if (!detection.isIntervalSelected()) {
+            IJ.log("Selected inward-outlier interval:");
+            IJ.log("NONE");
+        } else {
+            final InwardOutlierInterval selected = detection.getSelectedInterval();
+            IJ.log("Selected inward-outlier interval:");
+            IJ.log("startIndex,endIndex,wrapsAround,edgeCount,boundaryFraction,"
+                    + "minimumResidual,minimumResidualIndex,integratedInwardExcess,dominanceRatio");
+            IJ.log(selected.getStartIndex()
+                    + "," + selected.getEndIndex()
+                    + "," + selected.isWrapsAround()
+                    + "," + selected.getEdgeCount()
+                    + "," + fmt(selected.getBoundaryFraction())
+                    + "," + fmt(selected.getMinimumResidual())
+                    + "," + selected.getMinimumResidualIndex()
+                    + "," + fmt(selected.getIntegratedInwardExcess())
+                    + "," + fmtDominance(detection.getDominanceRatio()));
+        }
+
+        IJ.log("IMPORTANT:");
+        IJ.log("The interval is diagnostic only.");
+        IJ.log("No support points were excluded from the ellipse fit.");
+        IJ.log("The ellipse was not refitted.");
+        IJ.log("No pixels were changed.");
+        IJ.log("Reconstruction was not applied.");
+    }
+
+    private static String fmtDominance(final double value) {
+        if (Double.isInfinite(value)) {
+            return "Infinity";
+        }
+        return fmt(value);
     }
 
     private static void showVisualization(
             final String originalTitle,
             final ByteProcessor classified,
             final InitialEllipseAnalysisResult result,
-            final OrderedBoundaryResidualProfile residualProfile) {
+            final OrderedBoundaryResidualProfile residualProfile,
+            final InwardOutlierDetectionResult outlierDetection) {
         final int width = result.getImageWidth();
         final int height = result.getImageHeight();
         final ColorProcessor rgb = new ColorProcessor(width, height);
@@ -327,6 +430,7 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         final EllipseModel ellipse = result.getEllipseFitResult().getFittedEllipse();
         drawSupportPoints(rgb, result.getBoundarySupportPoints());
         drawOrderedResidualBoundary(rgb, residualProfile);
+        drawSelectedInwardInterval(rgb, residualProfile, outlierDetection);
         drawFittedEllipse(rgb, ellipse);
         drawAxes(rgb, ellipse);
         drawTextPanel(rgb, result, residualProfile);
@@ -537,9 +641,59 @@ public final class EllipseReconstructionPlugin implements PlugIn {
                 clamp((int) Math.round(maxPt.y) + 14, 0, rgb.getHeight() - 1));
     }
 
+    private static void drawSelectedInwardInterval(
+            final ColorProcessor rgb,
+            final OrderedBoundaryResidualProfile profile,
+            final InwardOutlierDetectionResult detection) {
+        if (!detection.isIntervalSelected()) {
+            return;
+        }
+        final InwardOutlierInterval interval = detection.getSelectedInterval();
+        final List<OrderedBoundaryResidualProfile.Sample> samples = profile.getSamples();
+        final Color magenta = new Color(255, 0, 255);
+        rgb.setColor(magenta);
+        for (final Integer indexObj : interval.getOrderedBoundaryIndices()) {
+            final int index = indexObj.intValue();
+            final OrderedBoundaryResidualProfile.Sample sample = samples.get(index);
+            // Thicker overlay: draw the unit edge and a parallel offset.
+            drawClippedLine(
+                    rgb,
+                    sample.getEdgeStartX(),
+                    sample.getEdgeStartY(),
+                    sample.getEdgeEndX(),
+                    sample.getEdgeEndY());
+            drawClippedLine(
+                    rgb,
+                    sample.getEdgeStartX() + 1,
+                    sample.getEdgeStartY(),
+                    sample.getEdgeEndX() + 1,
+                    sample.getEdgeEndY());
+            drawClippedLine(
+                    rgb,
+                    sample.getEdgeStartX(),
+                    sample.getEdgeStartY() + 1,
+                    sample.getEdgeEndX(),
+                    sample.getEdgeEndY() + 1);
+        }
+
+        final Point2D.Double start = interval.getStartSupportMidpoint();
+        final Point2D.Double end = interval.getEndSupportMidpoint();
+        drawFilledSquare(rgb, start.x, start.y, 3, Color.WHITE);
+        drawOutlinedSquare(rgb, end.x, end.y, 4, Color.WHITE);
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
+        rgb.drawString("INWARD INTERVAL START",
+                clamp((int) Math.round(start.x) + 6, 0, rgb.getWidth() - 1),
+                clamp((int) Math.round(start.y) - 4, 0, rgb.getHeight() - 1));
+        rgb.drawString("INWARD INTERVAL END",
+                clamp((int) Math.round(end.x) + 6, 0, rgb.getWidth() - 1),
+                clamp((int) Math.round(end.y) + 14, 0, rgb.getHeight() - 1));
+    }
+
     private static void showResidualProfilePlot(
             final String sourceTitle,
-            final OrderedBoundaryResidualProfile profile) {
+            final OrderedBoundaryResidualProfile profile,
+            final InwardOutlierDetectionResult detection) {
         final int edgeCount = profile.getSamples().size();
         final int width = Math.max(600, edgeCount);
         final int height = 320;
@@ -549,6 +703,8 @@ public final class EllipseReconstructionPlugin implements PlugIn {
 
         double minRes = profile.getMinimumResidual();
         double maxRes = profile.getMaximumResidual();
+        minRes = Math.min(minRes, detection.getCoreThreshold());
+        minRes = Math.min(minRes, detection.getExpansionThreshold());
         minRes = Math.min(minRes, profile.getMedianResidual() - profile.getMedianAbsoluteDeviation());
         maxRes = Math.max(maxRes, profile.getMedianResidual() + profile.getMedianAbsoluteDeviation());
         if (minRes == maxRes) {
@@ -563,6 +719,17 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         final int right = width - 20;
         final int top = 50;
         final int bottom = height - 40;
+
+        if (detection.isIntervalSelected()) {
+            final InwardOutlierInterval interval = detection.getSelectedInterval();
+            rgb.setColor(new Color(80, 0, 80));
+            for (final Integer indexObj : interval.getOrderedBoundaryIndices()) {
+                final int i = indexObj.intValue();
+                final int x = left + (int) Math.round(
+                        (right - left) * (i / (double) Math.max(1, edgeCount - 1)));
+                rgb.drawLine(x, top, x, bottom);
+            }
+        }
 
         // Zero line
         rgb.setColor(Color.WHITE);
@@ -582,6 +749,15 @@ public final class EllipseReconstructionPlugin implements PlugIn {
                 minRes, maxRes, top, bottom);
         rgb.drawLine(left, madLo, right, madLo);
         rgb.drawLine(left, madHi, right, madHi);
+
+        // Core and expansion thresholds
+        rgb.setColor(Color.MAGENTA);
+        final int coreY = residualToY(detection.getCoreThreshold(), minRes, maxRes, top, bottom);
+        rgb.drawLine(left, coreY, right, coreY);
+        rgb.setColor(new Color(255, 140, 0));
+        final int expY = residualToY(
+                detection.getExpansionThreshold(), minRes, maxRes, top, bottom);
+        rgb.drawLine(left, expY, right, expY);
 
         final List<OrderedBoundaryResidualProfile.Sample> samples = profile.getSamples();
         int prevX = -1;
@@ -618,10 +794,28 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         drawFilledSquare(rgb, minX, minY, 3, Color.WHITE);
         drawFilledSquare(rgb, maxX, maxY, 3, Color.LIGHT_GRAY);
 
+        if (detection.isIntervalSelected()) {
+            final InwardOutlierInterval interval = detection.getSelectedInterval();
+            final int startX = left + (int) Math.round(
+                    (right - left) * (interval.getStartIndex()
+                            / (double) Math.max(1, edgeCount - 1)));
+            final int endX = left + (int) Math.round(
+                    (right - left) * (interval.getEndIndex()
+                            / (double) Math.max(1, edgeCount - 1)));
+            rgb.setColor(Color.WHITE);
+            rgb.drawLine(startX, top, startX, bottom);
+            rgb.drawLine(endX, top, endX, bottom);
+            rgb.drawString("SELECTED INWARD INTERVAL", startX + 4, top + 14);
+        } else {
+            rgb.setColor(Color.WHITE);
+            rgb.drawString("NO INTERVAL SELECTED", 10, 58);
+            rgb.drawString(detection.getSelectionReason(), 10, 72);
+        }
+
         rgb.setColor(Color.WHITE);
         rgb.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         rgb.drawString("ORDERED OUTER BOUNDARY RESIDUAL PROFILE", 10, 16);
-        rgb.drawString("NO OUTLIER THRESHOLD APPLIED", 10, 30);
+        rgb.drawString("CORE/EXPANSION THRESHOLDS SHOWN", 10, 30);
         rgb.drawString("NO POINTS EXCLUDED / NO REFIT / NO RECONSTRUCTION", 10, 44);
         rgb.drawString("min=" + fmt(profile.getMinimumResidual())
                 + " @" + profile.getMinimumResidualIndex()
@@ -726,38 +920,72 @@ public final class EllipseReconstructionPlugin implements PlugIn {
 
     private static void showSummaryDialog(
             final InitialEllipseAnalysisResult result,
-            final OrderedBoundaryResidualProfile residualProfile) {
+            final OrderedBoundaryResidualProfile residualProfile,
+            final InwardOutlierDetectionResult outlierDetection) {
         final EllipseFitResult fit = result.getEllipseFitResult();
         final EllipseModel ellipse = fit.getFittedEllipse();
-        final String message = "Initial free ellipse fit completed.\n\n"
-                + "Input lumen encoding:\n"
-                + "Class " + ClassifierLabels.LUMEN + " = "
-                + ClassifierLabels.nameOf(ClassifierLabels.LUMEN) + "\n"
-                + "Weka result pixel value = " + ClassifierLabels.LUMEN_RESULT_VALUE + "\n\n"
-                + "Selected lumen area: " + result.getSelectedComponentArea() + "\n"
-                + "Boundary support points: " + result.getBoundarySupportPoints().size() + "\n"
-                + "Ellipse center: (" + fmt(ellipse.getCenterX()) + ", "
-                + fmt(ellipse.getCenterY()) + ")\n"
-                + "Semi-major axis: " + fmt(ellipse.getSemiMajorAxis()) + "\n"
-                + "Semi-minor axis: " + fmt(ellipse.getSemiMinorAxis()) + "\n"
-                + "Axis ratio: " + fmt(ellipse.getAxisRatio()) + "\n"
-                + "Rotation: " + fmt(Math.toDegrees(ellipse.getRotationRadians()))
-                + " degrees\n"
-                + "RMS residual: " + fmt(fit.getRootMeanSquaredResidual()) + "\n"
-                + "Proposed fill pixels: " + result.getProposedFillPixelCount() + "\n\n"
-                + "Ordered outer-boundary edges: "
-                + residualProfile.getSamples().size() + "\n"
-                + "Minimum inward residual: " + fmt(residualProfile.getMinimumResidual())
-                + " at index " + residualProfile.getMinimumResidualIndex() + "\n"
-                + "Maximum outward residual: " + fmt(residualProfile.getMaximumResidual())
-                + " at index " + residualProfile.getMaximumResidualIndex() + "\n"
-                + "Median residual: " + fmt(residualProfile.getMedianResidual()) + "\n"
-                + "MAD: " + fmt(residualProfile.getMedianAbsoluteDeviation()) + "\n\n"
-                + "No inward interval was selected.\n"
-                + "No boundary points were excluded.\n"
-                + "The ellipse was not refitted.\n"
-                + "Reconstruction was not applied.";
-        IJ.showMessage("Robust Ellipse Reconstruction Prototype", message);
+        final StringBuilder message = new StringBuilder();
+        message.append("Initial free ellipse fit completed.\n\n");
+        message.append("Input lumen encoding:\n");
+        message.append("Class ").append(ClassifierLabels.LUMEN).append(" = ")
+                .append(ClassifierLabels.nameOf(ClassifierLabels.LUMEN)).append("\n");
+        message.append("Weka result pixel value = ")
+                .append(ClassifierLabels.LUMEN_RESULT_VALUE).append("\n\n");
+        message.append("Selected lumen area: ").append(result.getSelectedComponentArea()).append("\n");
+        message.append("Boundary support points: ")
+                .append(result.getBoundarySupportPoints().size()).append("\n");
+        message.append("Ellipse center: (").append(fmt(ellipse.getCenterX())).append(", ")
+                .append(fmt(ellipse.getCenterY())).append(")\n");
+        message.append("Semi-major axis: ").append(fmt(ellipse.getSemiMajorAxis())).append("\n");
+        message.append("Semi-minor axis: ").append(fmt(ellipse.getSemiMinorAxis())).append("\n");
+        message.append("Axis ratio: ").append(fmt(ellipse.getAxisRatio())).append("\n");
+        message.append("Rotation: ")
+                .append(fmt(Math.toDegrees(ellipse.getRotationRadians()))).append(" degrees\n");
+        message.append("RMS residual: ").append(fmt(fit.getRootMeanSquaredResidual())).append("\n");
+        message.append("Proposed fill pixels: ")
+                .append(result.getProposedFillPixelCount()).append("\n\n");
+        message.append("Ordered outer-boundary edges: ")
+                .append(residualProfile.getSamples().size()).append("\n");
+        message.append("Minimum inward residual: ")
+                .append(fmt(residualProfile.getMinimumResidual()))
+                .append(" at index ").append(residualProfile.getMinimumResidualIndex()).append("\n");
+        message.append("Maximum outward residual: ")
+                .append(fmt(residualProfile.getMaximumResidual()))
+                .append(" at index ").append(residualProfile.getMaximumResidualIndex()).append("\n");
+        message.append("Median residual: ")
+                .append(fmt(residualProfile.getMedianResidual())).append("\n");
+        message.append("MAD: ")
+                .append(fmt(residualProfile.getMedianAbsoluteDeviation())).append("\n\n");
+        message.append("Robust residual scale: ")
+                .append(fmt(outlierDetection.getRobustScale())).append("\n");
+        message.append("Core threshold: ")
+                .append(fmt(outlierDetection.getCoreThreshold())).append("\n");
+        message.append("Expansion threshold: ")
+                .append(fmt(outlierDetection.getExpansionThreshold())).append("\n");
+        message.append("Candidate intervals: ")
+                .append(outlierDetection.getCandidateIntervals().size()).append("\n");
+        message.append("Interval selected: ")
+                .append(outlierDetection.isIntervalSelected()).append("\n");
+        message.append("Selection reason: ")
+                .append(outlierDetection.getSelectionReason()).append("\n");
+        if (outlierDetection.isIntervalSelected()) {
+            final InwardOutlierInterval interval = outlierDetection.getSelectedInterval();
+            message.append("\nInterval start index: ").append(interval.getStartIndex()).append("\n");
+            message.append("Interval end index: ").append(interval.getEndIndex()).append("\n");
+            message.append("Interval wraps around: ").append(interval.isWrapsAround()).append("\n");
+            message.append("Interval edge count: ").append(interval.getEdgeCount()).append("\n");
+            message.append("Interval boundary fraction: ")
+                    .append(fmt(interval.getBoundaryFraction())).append("\n");
+            message.append("Interval minimum residual: ")
+                    .append(fmt(interval.getMinimumResidual())).append("\n");
+            message.append("Interval dominance ratio: ")
+                    .append(fmtDominance(outlierDetection.getDominanceRatio())).append("\n");
+        }
+        message.append("\nThe interval is diagnostic only.\n");
+        message.append("No boundary points were excluded.\n");
+        message.append("The ellipse was not refitted.\n");
+        message.append("Reconstruction was not applied.");
+        IJ.showMessage("Robust Ellipse Reconstruction Prototype", message.toString());
     }
 
     private static String fmt(final double value) {

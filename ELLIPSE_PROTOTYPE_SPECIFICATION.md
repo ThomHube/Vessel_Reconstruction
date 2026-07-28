@@ -5,7 +5,7 @@
 - **Algorithm:** Robust Ellipse Reconstruction
 - **Project directory:** `/home/thomas/IdeaProjects/minimal-ij1-plugin-ellipse`
 - **Artifact:** `VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar`
-- **Status:** Initial image-based free-ellipse diagnostic prototype implemented; robust outlier exclusion and reconstruction remain unimplemented
+- **Status:** Initial free-ellipse fit plus diagnostic inward-outlier interval detection implemented; support-point exclusion, refitting, acceptance, and reconstruction remain unimplemented
 - **Independence:** This repository does not contain the legacy contour bridgepoint algorithm
 
 ## Mathematical free-ellipse stage
@@ -36,6 +36,12 @@ Implemented:
 - deterministic outer-loop selection
 - ordered outer-boundary residual profile
 - residual visualization and profile plot
+- robust residual scale using normalized MAD (`1.4826 * MAD`)
+- strict inward-outlier core threshold (`median - 3.0 * robustScale`)
+- expansion threshold (`median - 1.5 * robustScale`)
+- circular contiguous expansion-run extraction (no smoothing, no gap bridging)
+- deterministic dominant inward-outlier interval selection
+- diagnostic interval visualization on the boundary and residual-profile plot
 
 The initial ellipse may be influenced by the artifact because all observed
 boundary points are included.
@@ -43,16 +49,22 @@ boundary points are included.
 A selected lumen with an ambiguous high-degree lattice boundary vertex is
 rejected in this stage rather than resolved speculatively.
 
+Inward-outlier interval detection is diagnostic only. The selected interval does
+not exclude support points and does not trigger a refit. Prototype constants
+(`NORMALIZED_MAD_SCALE`, `CORE_SIGMA_MULTIPLIER`, `EXPANSION_SIGMA_MULTIPLIER`,
+`MIN_INTERVAL_EDGE_COUNT`, `MAX_INTERVAL_BOUNDARY_FRACTION`,
+`MIN_DOMINANCE_RATIO`) are not final biological thresholds.
+
 Not yet implemented:
 
-- residual threshold selection
-- inward-outlier interval selection
-- support-point exclusion
-- robust ellipse refitting
+- support-point exclusion from fitting
+- ellipse refitting
+- iterative convergence
 - ellipse acceptance
-- production reconstruction
+- proposed fill acceptance
+- source-image modification
+- reconstruction
 - pixel modification
-- source-pixel modification
 
 ## Fixed classifier mapping
 
@@ -162,7 +174,14 @@ Use only:
 - ellipse support point
 - retained boundary point
 - excluded inward outlier
-- inward outlier arc
+- inward outlier
+- inward-outlier core
+- inward-outlier interval
+- robust residual scale
+- core threshold
+- expansion threshold
+- selected interval
+- interval dominance
 - robust ellipse fit
 - fitted ellipse
 - frozen ellipse
@@ -183,3 +202,4 @@ Do not use in production code:
 - ArtifactBridgeTriplet
 - BridgeCandidate
 - PixelEdgeBoundaryTracer
+- inward outlier arc

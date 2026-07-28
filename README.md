@@ -53,23 +53,31 @@ The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
 - deterministic outer-loop selection
 - ordered outer-boundary residual profile
 - residual visualization and profile plot
+- robust residual scale using normalized MAD
+- strict inward-outlier core threshold
+- expansion threshold
+- circular contiguous interval extraction
+- deterministic dominant-interval selection
+- diagnostic interval visualization
 
-The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse to all exposed-edge midpoint support points, orders the selected outer boundary, and shows residual diagnostics.
+The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse to all exposed-edge midpoint support points, orders the selected outer boundary, detects a candidate contiguous inward-outlier interval for diagnostics, and shows residual/interval overlays.
 
 The initial ellipse may be influenced by the artifact because all observed boundary points are included.
 
 A selected lumen with an ambiguous high-degree lattice boundary vertex is rejected in this stage rather than resolved speculatively.
 
+Inward-outlier interval detection is diagnostic only. Prototype constants (normalized MAD scale, core/expansion sigma multipliers, minimum interval length, maximum boundary fraction, dominance ratio) are not final biological thresholds.
+
 ### Not implemented
 
-- residual threshold selection
-- inward-outlier interval selection
-- support-point exclusion
-- robust ellipse refitting
+- support-point exclusion from fitting
+- ellipse refitting
+- iterative convergence
 - ellipse acceptance
-- production reconstruction
+- proposed fill acceptance
+- source-image modification
+- reconstruction
 - pixel modification
-- source-pixel modification
 
 The classified source image is never modified. Circularity is not optimized and the ellipse is not forced to become a circle.
 
