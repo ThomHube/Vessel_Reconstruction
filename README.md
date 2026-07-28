@@ -82,12 +82,39 @@ The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
 - interval-associated preview perimeter and circularity diagnostics
 - unobscured diagnostic visualization
 - first-failure ambiguous lattice-vertex diagnostics for ordered-boundary extraction
+- ImageJ core boundary reference audit (ThresholdToSelection, Wand FOUR/EIGHT)
 
 The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse, detects a contiguous inward-outlier interval, performs one outer-boundary baseline fit and one interval-excluded refit, builds a whole-ellipse fill preview, and then splits proposed fill into 8-connected components associated to the selected interval via exact exterior seeds.
 
 8-connected lumen components can contain diagonal pixel contacts. A diagonal contact may create a lattice vertex with multiple unused outgoing exposed directed edges. The current extractor still rejects such a vertex and now reports an exact first-failure `AMBIGUOUS_BOUNDARY_VERTEX` diagnostic (occupancy pattern, incident edges, unused outgoing candidates, and turn relations). No successor policy has been chosen yet. The next correction must be based on the observed occupancy pattern and edge state.
 
+On `AMBIGUOUS_BOUNDARY_VERTEX`, the plugin also runs an ImageJ core boundary reference audit against ThresholdToSelection, Wand FOUR_CONNECTED, and Wand EIGHT_CONNECTED. This audit is diagnostic only.
+
 `AMBIGUOUS_BOUNDARY_VERTEX` is currently a conservative diagnostic stop, not a reconstruction rejection and not evidence that the ellipse method failed.
+
+### External / core sources evaluated
+
+- ImageJ Wand FOUR_CONNECTED
+- ImageJ Wand EIGHT_CONNECTED
+- ImageJ ThresholdToSelection and ShapeRoi
+- IJBlob
+- Ellipse Split
+- MorphoLibJ
+- ImageJ EllipseFitter
+- TrackMate contour ellipse fitting
+- ImageJ Ops DefaultContour
+
+### Current reuse decision
+
+- ImageJ core boundary APIs are used as independent diagnostic references
+- no external contour implementation has replaced OrderedBoundaryExtractor
+- IJBlob is not added as a dependency
+- MorphoLibJ is not added as a dependency
+- ImageJ Ops is not added as a dependency
+- the custom free-ellipse fitter remains in use
+- the biological residual, interval and fill-association logic remains custom
+
+The diagonal checkerboard topology policy has not yet been chosen. A production successor rule will be implemented only after comparing established ImageJ reference behavior on the exact failing geometry.
 
 Detection, refit, fill preview, and component association are diagnostic only. The selected interval is excluded only from mathematical fit support. Fill previews are additive and in-memory. No classified pixels are removed or changed. The interval-associated preview is diagnostic only; no component is currently accepted or rejected. Circularity remains a secondary diagnostic.
 

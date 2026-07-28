@@ -2124,6 +2124,29 @@ public final class EllipseReconstructionPlugin implements PlugIn {
                 result.getSelectedLumenPixels(),
                 diagnostic);
 
+        try {
+            final ImageJBoundaryReferenceResult reference =
+                    new ImageJBoundaryReferenceAnalyzer().analyze(
+                            classified.getWidth(),
+                            classified.getHeight(),
+                            result.getSelectedLumenPixels(),
+                            diagnostic);
+            logImageJBoundaryReferenceAudit(reference);
+            showImageJBoundaryReferenceVisualization(
+                    image.getTitle(),
+                    classified.getWidth(),
+                    classified.getHeight(),
+                    result.getSelectedLumenPixels(),
+                    diagnostic,
+                    reference);
+        } catch (RuntimeException referenceEx) {
+            IJ.log("ImageJ boundary reference audit failed: "
+                    + String.valueOf(referenceEx.getMessage()));
+            if (referenceEx.getClass() != null) {
+                IJ.log("Reference audit exception type: " + referenceEx.getClass().getName());
+            }
+        }
+
         final StringBuilder dialog = new StringBuilder();
         dialog.append("Ordered boundary analysis stopped at an ambiguous lattice vertex.\n\n");
         dialog.append("Vertex: (").append(diagnostic.getVertexX()).append(", ")
@@ -2503,6 +2526,309 @@ public final class EllipseReconstructionPlugin implements PlugIn {
                 rgb.drawLine(mx, my, mx - ax, my - dy * ax);
                 rgb.drawLine(mx, my, mx + ax, my - dy * ax);
             }
+        }
+    }
+
+    private static void logImageJBoundaryReferenceAudit(
+            final ImageJBoundaryReferenceResult reference) {
+        IJ.log("ImageJ boundary reference audit:");
+        IJ.log("method,outlineNumber,vertexCount,unitEdgeCount,closed,signedArea,absoluteArea,"
+                + "distinctVertices,repeatedNonClosingVertices,expectedEdgeMatches,"
+                + "missingExpectedEdges,extraReferenceEdges,expectedCoverageFraction,"
+                + "containsAmbiguousVertex,ambiguousVertexOccurrences,incomingEdgeFound,"
+                + "incomingEdgeOccurrences,successorDirection,successorTurnRelation");
+        logReferenceOutlines(reference.getThresholdToSelectionOutlines());
+        logReferenceOutlines(reference.getWandFourConnectedOutlines());
+        logReferenceOutlines(reference.getWandEightConnectedOutlines());
+
+        IJ.log("ImageJ boundary reference method summary:");
+        IJ.log("method,outlineCount,unionExpectedEdgeMatches,unionMissingExpectedEdges,"
+                + "unionExtraReferenceEdges,unionCoverageFraction");
+        logReferenceMethodSummary(
+                ImageJBoundaryReferenceResult.ReferenceMethod.THRESHOLD_TO_SELECTION,
+                reference.getThresholdToSelectionOutlines(),
+                reference.getExpectedExposedEdgeCount());
+        logReferenceMethodSummary(
+                ImageJBoundaryReferenceResult.ReferenceMethod.WAND_FOUR_CONNECTED,
+                reference.getWandFourConnectedOutlines(),
+                reference.getExpectedExposedEdgeCount());
+        logReferenceMethodSummary(
+                ImageJBoundaryReferenceResult.ReferenceMethod.WAND_EIGHT_CONNECTED,
+                reference.getWandEightConnectedOutlines(),
+                reference.getExpectedExposedEdgeCount());
+
+        IJ.log("ImageJ boundary reference conclusion:");
+        IJ.log(reference.getOverallDiagnosticConclusion());
+        IJ.log("IMPORTANT:");
+        IJ.log("ImageJ reference contours were used for diagnosis only.");
+        IJ.log("OrderedBoundaryExtractor was not changed.");
+        IJ.log("No production successor was selected.");
+        IJ.log("No boundary was repaired or normalized for production use.");
+        IJ.log("Component membership remains 8-connected.");
+        IJ.log("Ellipse fitting was not changed.");
+        IJ.log("Residual thresholds were not changed.");
+        IJ.log("No pixels were changed.");
+        IJ.log("Production reconstruction was not applied.");
+    }
+
+    private static void logReferenceOutlines(
+            final List<ImageJBoundaryReferenceResult.ReferenceOutline> outlines) {
+        for (int i = 0; i < outlines.size(); i++) {
+            final ImageJBoundaryReferenceResult.ReferenceOutline o = outlines.get(i);
+            final String successor = o.getSuccessorDirectionAtAmbiguity() == null
+                    ? ""
+                    : o.getSuccessorDirectionAtAmbiguity().name();
+            IJ.log(String.format(Locale.US,
+                    "%s,%d,%d,%d,%s,%.6f,%.6f,%d,%d,%d,%d,%d,%.6f,%s,%d,%s,%d,%s,%s",
+                    o.getMethod().name(),
+                    Integer.valueOf(o.getOutlineNumber()),
+                    Integer.valueOf(o.getLatticeVertices().size()),
+                    Integer.valueOf(o.getExpandedUnitEdges().size()),
+                    Boolean.toString(o.isClosed()),
+                    Double.valueOf(o.getSignedArea()),
+                    Double.valueOf(o.getAbsoluteArea()),
+                    Integer.valueOf(o.getDistinctVertexCount()),
+                    Integer.valueOf(o.getRepeatedNonClosingVertexCount()),
+                    Integer.valueOf(o.getExpectedExposedEdgeMatchCount()),
+                    Integer.valueOf(o.getMissingExpectedExposedEdgeCount()),
+                    Integer.valueOf(o.getExtraReferenceEdgeCount()),
+                    Double.valueOf(o.getExpectedExposedEdgeCoverageFraction()),
+                    Boolean.toString(o.isContainsAmbiguousVertex()),
+                    Integer.valueOf(o.getAmbiguousVertexOccurrenceCount()),
+                    Boolean.toString(o.isMatchingIncomingEdgeFound()),
+                    Integer.valueOf(o.getMatchingIncomingEdgeOccurrenceCount()),
+                    successor,
+                    o.getSuccessorTurnRelationAtAmbiguity().name()));
+        }
+    }
+
+    private static void logReferenceMethodSummary(
+            final ImageJBoundaryReferenceResult.ReferenceMethod method,
+            final List<ImageJBoundaryReferenceResult.ReferenceOutline> outlines,
+            final int expectedEdgeCount) {
+        final Set<String> unionKeys = new HashSet<String>();
+        for (int i = 0; i < outlines.size(); i++) {
+            final List<DirectedPixelEdge> edges = outlines.get(i).getExpandedUnitEdges();
+            for (int j = 0; j < edges.size(); j++) {
+                unionKeys.add(ImageJBoundaryReferenceAnalyzer.undirectedKey(edges.get(j)));
+            }
+        }
+        final int reportedMatches;
+        final int reportedMissing;
+        final int reportedExtra;
+        if (outlines.size() == 1) {
+            reportedMatches = outlines.get(0).getExpectedExposedEdgeMatchCount();
+            reportedMissing = outlines.get(0).getMissingExpectedExposedEdgeCount();
+            reportedExtra = outlines.get(0).getExtraReferenceEdgeCount();
+        } else if (outlines.isEmpty()) {
+            reportedMatches = 0;
+            reportedMissing = expectedEdgeCount;
+            reportedExtra = 0;
+        } else {
+            reportedMatches = Math.min(unionKeys.size(), expectedEdgeCount);
+            reportedMissing = Math.max(0, expectedEdgeCount - reportedMatches);
+            reportedExtra = Math.max(0, unionKeys.size() - reportedMatches);
+        }
+        final double coverage = expectedEdgeCount == 0
+                ? 0.0
+                : ((double) reportedMatches) / ((double) expectedEdgeCount);
+        IJ.log(String.format(Locale.US,
+                "%s,%d,%d,%d,%d,%.6f",
+                method.name(),
+                Integer.valueOf(outlines.size()),
+                Integer.valueOf(reportedMatches),
+                Integer.valueOf(reportedMissing),
+                Integer.valueOf(reportedExtra),
+                Double.valueOf(coverage)));
+    }
+
+    private static void showImageJBoundaryReferenceVisualization(
+            final String sourceTitle,
+            final int imageWidth,
+            final int imageHeight,
+            final List<Point> selectedLumenPixels,
+            final AmbiguousBoundaryVertexDiagnostic diagnostic,
+            final ImageJBoundaryReferenceResult reference) {
+        final int canvasWidth = 980;
+        final int canvasHeight = 520;
+        final ColorProcessor rgb = new ColorProcessor(canvasWidth, canvasHeight);
+        rgb.setColor(Color.BLACK);
+        rgb.fill();
+
+        final Set<Long> selected = new HashSet<Long>();
+        for (int i = 0; i < selectedLumenPixels.size(); i++) {
+            final Point p = selectedLumenPixels.get(i);
+            selected.add((((long) p.x) << 32) ^ (p.y & 0xffffffffL));
+        }
+
+        final int panelWidth = 300;
+        final int panelHeight = 300;
+        final int panelTop = 24;
+        paintReferencePanel(rgb, 12, panelTop, panelWidth, panelHeight,
+                "THRESHOLD TO SELECTION", Color.CYAN,
+                imageWidth, imageHeight, selected, diagnostic,
+                reference.getThresholdToSelectionOutlines());
+        paintReferencePanel(rgb, 324, panelTop, panelWidth, panelHeight,
+                "WAND FOUR CONNECTED", new Color(255, 140, 0),
+                imageWidth, imageHeight, selected, diagnostic,
+                reference.getWandFourConnectedOutlines());
+        paintReferencePanel(rgb, 636, panelTop, panelWidth, panelHeight,
+                "WAND EIGHT CONNECTED", new Color(0, 200, 0),
+                imageWidth, imageHeight, selected, diagnostic,
+                reference.getWandEightConnectedOutlines());
+
+        final int textX = 12;
+        int textY = panelTop + panelHeight + 28;
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 13));
+        rgb.drawString("REFERENCE AUDIT ONLY", textX, textY);
+        textY += 18;
+        rgb.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        rgb.drawString("NO PRODUCTION SUCCESSOR SELECTED", textX, textY);
+        textY += 16;
+        rgb.drawString("ORDERED BOUNDARY EXTRACTOR UNCHANGED", textX, textY);
+        textY += 16;
+        rgb.drawString("NO PIXELS CHANGED", textX, textY);
+        textY += 18;
+        rgb.drawString("conclusion=" + reference.getOverallDiagnosticConclusion(), textX, textY);
+
+        new ImagePlus("ImageJ Boundary Reference Audit - " + sourceTitle, rgb).show();
+    }
+
+    private static void paintReferencePanel(
+            final ColorProcessor rgb,
+            final int left,
+            final int top,
+            final int panelWidth,
+            final int panelHeight,
+            final String title,
+            final Color contourColor,
+            final int imageWidth,
+            final int imageHeight,
+            final Set<Long> selected,
+            final AmbiguousBoundaryVertexDiagnostic diagnostic,
+            final List<ImageJBoundaryReferenceResult.ReferenceOutline> outlines) {
+        rgb.setColor(new Color(20, 20, 20));
+        rgb.fillRect(left, top, panelWidth, panelHeight);
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 11));
+        rgb.drawString(title, left + 6, top + 14);
+
+        final int vertexX = diagnostic.getVertexX();
+        final int vertexY = diagnostic.getVertexY();
+        final int cellMinX = vertexX - 2;
+        final int cellMaxX = vertexX + 1;
+        final int cellMinY = vertexY - 2;
+        final int cellMaxY = vertexY + 1;
+        final int cellCountX = cellMaxX - cellMinX + 1;
+        final int cellCountY = cellMaxY - cellMinY + 1;
+        final int latticeLeft = left + 10;
+        final int latticeTop = top + 24;
+        final int scale = Math.max(28, Math.min(
+                (panelWidth - 20) / cellCountX,
+                (panelHeight - 110) / cellCountY));
+
+        final Color selectedCell = new Color(120, 120, 120);
+        final Color nonSelectedCell = new Color(40, 40, 40);
+        for (int cy = cellMinY; cy <= cellMaxY; cy++) {
+            for (int cx = cellMinX; cx <= cellMaxX; cx++) {
+                final int sx = latticeLeft + (cx - cellMinX) * scale;
+                final int sy = latticeTop + (cy - cellMinY) * scale;
+                final boolean inBounds =
+                        cx >= 0 && cy >= 0 && cx < imageWidth && cy < imageHeight;
+                final boolean isSelected = inBounds
+                        && selected.contains((((long) cx) << 32) ^ (cy & 0xffffffffL));
+                if (!inBounds) {
+                    rgb.setColor(Color.BLACK);
+                } else if (isSelected) {
+                    rgb.setColor(selectedCell);
+                } else {
+                    rgb.setColor(nonSelectedCell);
+                }
+                rgb.fillRect(sx, sy, scale, scale);
+                rgb.setColor(new Color(70, 70, 70));
+                rgb.drawRect(sx, sy, scale, scale);
+            }
+        }
+
+        // Custom unused candidates (magenta) and incoming (yellow).
+        for (int i = 0; i < diagnostic.getUnusedOutgoingEdges().size(); i++) {
+            drawLatticeEdge(rgb, diagnostic.getUnusedOutgoingEdges().get(i),
+                    latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                    Color.MAGENTA, 2, true);
+        }
+        drawLatticeEdge(rgb, diagnostic.getIncomingEdge(),
+                latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                Color.YELLOW, 3, true);
+
+        DirectedPixelEdge successor = null;
+        ImageJBoundaryReferenceResult.ReferenceTurnRelation turn =
+                ImageJBoundaryReferenceResult.ReferenceTurnRelation.NOT_FOUND;
+        int unitEdges = 0;
+        double coverage = 0.0;
+        int repeated = 0;
+        if (!outlines.isEmpty()) {
+            final ImageJBoundaryReferenceResult.ReferenceOutline primary = outlines.get(0);
+            unitEdges = primary.getExpandedUnitEdges().size();
+            coverage = primary.getExpectedExposedEdgeCoverageFraction();
+            repeated = primary.getRepeatedNonClosingVertexCount();
+            turn = primary.getSuccessorTurnRelationAtAmbiguity();
+            final List<DirectedPixelEdge> edges = primary.getExpandedUnitEdges();
+            for (int i = 0; i < edges.size(); i++) {
+                drawLatticeEdge(rgb, edges.get(i),
+                        latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                        contourColor, 1, false);
+            }
+            if (primary.isMatchingIncomingEdgeFound()
+                    && primary.getMatchingIncomingEdgeOccurrenceCount() == 1
+                    && primary.getSuccessorDirectionAtAmbiguity() != null) {
+                for (int i = 0; i < edges.size(); i++) {
+                    if (edges.get(i).equals(diagnostic.getIncomingEdge())) {
+                        successor = edges.get((i + 1) % edges.size());
+                        break;
+                    }
+                }
+            }
+            if (successor != null) {
+                drawLatticeEdge(rgb, successor,
+                        latticeLeft, latticeTop, scale, cellMinX, cellMinY,
+                        contourColor, 3, true);
+            }
+        }
+
+        final int vxScreen = latticeLeft + (vertexX - cellMinX) * scale;
+        final int vyScreen = latticeTop + (vertexY - cellMinY) * scale;
+        final int half = Math.max(3, scale / 7);
+        rgb.setColor(Color.WHITE);
+        rgb.fillRect(vxScreen - half, vyScreen - half, half * 2, half * 2);
+
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.PLAIN, 10));
+        int ty = latticeTop + cellCountY * scale + 14;
+        rgb.drawString("outlines=" + outlines.size(), left + 6, ty);
+        ty += 12;
+        rgb.drawString("unitEdges=" + unitEdges, left + 6, ty);
+        ty += 12;
+        rgb.drawString(String.format(Locale.US, "coverage=%.3f", Double.valueOf(coverage)),
+                left + 6, ty);
+        ty += 12;
+        rgb.drawString("repeated=" + repeated, left + 6, ty);
+        ty += 12;
+        final String successorText = successor == null
+                ? "n/a"
+                : successor.getDirection().name();
+        rgb.drawString("successor=" + successorText, left + 6, ty);
+        ty += 12;
+        rgb.drawString("turn=" + turn.name(), left + 6, ty);
+        ty += 12;
+        if (outlines.isEmpty()
+                || turn == ImageJBoundaryReferenceResult.ReferenceTurnRelation.NOT_FOUND) {
+            rgb.setColor(Color.YELLOW);
+            rgb.drawString("INCOMING EDGE NOT FOUND", left + 6, ty);
+        } else if (turn
+                == ImageJBoundaryReferenceResult.ReferenceTurnRelation.MULTIPLE_MATCHES) {
+            rgb.setColor(Color.YELLOW);
+            rgb.drawString("MULTIPLE INCOMING MATCHES", left + 6, ty);
         }
     }
 }

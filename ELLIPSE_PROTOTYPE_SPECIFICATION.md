@@ -65,6 +65,7 @@ Implemented:
 - interval-associated preview perimeter and circularity diagnostics
 - unobscured diagnostic visualization
 - first-failure ambiguous lattice-vertex diagnostics for ordered-boundary extraction
+- ImageJ core boundary reference audit (ThresholdToSelection, Wand FOUR/EIGHT)
 
 The initial ellipse may be influenced by the artifact because all observed
 boundary points are included.
@@ -78,8 +79,40 @@ edges, unused outgoing candidates in evaluation order, and candidate turn
 relations. No successor policy has been chosen yet. The next correction must
 be based on the observed occupancy pattern and edge state.
 
+On `AMBIGUOUS_BOUNDARY_VERTEX`, the plugin also runs an ImageJ core boundary
+reference audit against ThresholdToSelection, Wand FOUR_CONNECTED, and Wand
+EIGHT_CONNECTED. This audit compares reference contours to the expected exposed
+directed-edge set and records successor turn behavior at the failing vertex.
+It is diagnostic only and does not select a production successor.
+
 `AMBIGUOUS_BOUNDARY_VERTEX` is currently a conservative diagnostic stop, not a
 reconstruction rejection and not evidence that the ellipse method failed.
+
+### External / core sources evaluated
+
+- ImageJ Wand FOUR_CONNECTED
+- ImageJ Wand EIGHT_CONNECTED
+- ImageJ ThresholdToSelection and ShapeRoi
+- IJBlob
+- Ellipse Split
+- MorphoLibJ
+- ImageJ EllipseFitter
+- TrackMate contour ellipse fitting
+- ImageJ Ops DefaultContour
+
+### Current reuse decision
+
+- ImageJ core boundary APIs are used as independent diagnostic references
+- no external contour implementation has replaced OrderedBoundaryExtractor
+- IJBlob is not added as a dependency
+- MorphoLibJ is not added as a dependency
+- ImageJ Ops is not added as a dependency
+- the custom free-ellipse fitter remains in use
+- the biological residual, interval and fill-association logic remains custom
+
+The diagonal checkerboard topology policy has not yet been chosen. A production
+successor rule will be implemented only after comparing established ImageJ
+reference behavior on the exact failing geometry.
 
 Detection, single-interval refit, fill preview, and component association are
 diagnostic only. The selected interval is excluded only from mathematical fit
