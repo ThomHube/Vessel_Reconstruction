@@ -83,8 +83,9 @@ The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
 - unobscured diagnostic visualization
 - first-failure ambiguous lattice-vertex diagnostics for ordered-boundary extraction
 - ImageJ core boundary reference audit (ThresholdToSelection, Wand FOUR/EIGHT)
+- diagnostic artifact-evidence assessment after interval, refit, and fill-component stages
 
-The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse, detects a contiguous inward-outlier interval, performs one outer-boundary baseline fit and one interval-excluded refit, builds a whole-ellipse fill preview, and then splits proposed fill into 8-connected components associated to the selected interval via exact exterior seeds.
+The plugin analyzes the active 8-bit classified image, selects the largest Class 3 lumen component, fits one initial free ellipse, detects a contiguous inward-outlier interval, performs one outer-boundary baseline fit and one interval-excluded refit, builds a whole-ellipse fill preview, splits proposed fill into 8-connected components associated to the selected interval via exact exterior seeds, and then applies a conservative diagnostic artifact-evidence gate.
 
 8-connected lumen components can contain diagonal pixel contacts. A diagonal contact may create a lattice vertex with multiple unused outgoing exposed directed edges.
 
@@ -106,6 +107,44 @@ The project therefore adopts `RIGHT_TURN_SAME_FACE` only for exact diagonal chec
 `RIGHT_TURN_SAME_FACE` is a narrow digital-topology rule. It does not detect artifacts. It does not approve reconstruction. It does not modify any classified pixels.
 
 `AMBIGUOUS_BOUNDARY_VERTEX` remains a conservative diagnostic stop for unresolved non-diagonal ambiguities.
+
+### Artifact evidence gate
+
+Interval uniqueness is not sufficient evidence. A sole interval (including
+`dominanceRatio=Infinity`) no longer implies biological importance.
+
+After interval selection, interval-excluded refit, and proposed-fill component
+association, the prototype evaluates scale-independent residual evidence:
+
+- minimumDepthSigma = (medianResidual - minimumResidual) / robustScale
+- meanDepthSigma = (medianResidual - meanResidual) / robustScale
+- coreFraction = corePointCount / intervalEdgeCount
+- normalizedIntegratedInwardExcess = integratedInwardExcess / (intervalEdgeCount * robustScale)
+- retainedRmsImprovementFraction = (baselineRetainedRms - refittedRetainedRms) / baselineRetainedRms
+
+Conservative prototype thresholds:
+
+- minimumDepthSigma >= 5.0
+- meanDepthSigma >= 3.0
+- coreFraction >= 0.15
+- normalizedIntegratedInwardExcess >= 1.50
+- retainedRmsImprovementFraction >= 0.20
+
+Structural association also requires exactly one interval-associated fill
+component, all exterior seeds matched, and no other Lumen overlap.
+
+Circularity and associated fill fraction remain secondary diagnostics and do
+not control the evidence decision.
+
+Verified regression outcomes under the current prototype thresholds:
+
+- positive example 2 → `STRONG_ARTIFACT_EVIDENCE`
+- clean example 7 → `INSUFFICIENT_RESIDUAL_EVIDENCE`
+- clean example 6 stops earlier with `NO_CORE_POINTS`
+
+The diagnostic evidence result is not production reconstruction approval.
+The thresholds are provisional and may be revised only after testing additional
+positive and negative examples.
 
 ### External / core sources evaluated
 

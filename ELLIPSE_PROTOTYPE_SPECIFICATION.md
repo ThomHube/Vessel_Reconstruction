@@ -66,6 +66,7 @@ Implemented:
 - unobscured diagnostic visualization
 - first-failure ambiguous lattice-vertex diagnostics for ordered-boundary extraction
 - ImageJ core boundary reference audit (ThresholdToSelection, Wand FOUR/EIGHT)
+- diagnostic artifact-evidence assessment after interval, refit, and fill-component stages
 
 The initial ellipse may be influenced by the artifact because all observed
 boundary points are included.
@@ -134,6 +135,44 @@ removed or changed. The interval-associated preview is diagnostic only; no
 component is currently accepted or rejected. Circularity remains a secondary
 diagnostic and does not control the ellipse fit or automatically approve
 reconstruction. Prototype constants are not final biological thresholds.
+
+### Artifact evidence gate
+
+Interval uniqueness is not sufficient evidence. A sole interval (including
+`dominanceRatio=Infinity`) no longer implies biological importance.
+
+After interval selection, interval-excluded refit, and proposed-fill component
+association, the prototype evaluates scale-independent residual evidence:
+
+- `minimumDepthSigma = (medianResidual - minimumResidual) / robustScale`
+- `meanDepthSigma = (medianResidual - meanResidual) / robustScale`
+- `coreFraction = corePointCount / intervalEdgeCount`
+- `normalizedIntegratedInwardExcess = integratedInwardExcess / (intervalEdgeCount * robustScale)`
+- `retainedRmsImprovementFraction = (baselineRetainedRms - refittedRetainedRms) / baselineRetainedRms`
+
+Conservative prototype thresholds:
+
+- `minimumDepthSigma >= 5.0`
+- `meanDepthSigma >= 3.0`
+- `coreFraction >= 0.15`
+- `normalizedIntegratedInwardExcess >= 1.50`
+- `retainedRmsImprovementFraction >= 0.20`
+
+Structural association also requires exactly one interval-associated fill
+component, all exterior seeds matched, and no other Lumen overlap.
+
+Circularity and associated fill fraction remain secondary diagnostics and do
+not control the evidence decision.
+
+Verified regression outcomes under the current prototype thresholds:
+
+- positive example 2 → `STRONG_ARTIFACT_EVIDENCE`
+- clean example 7 → `INSUFFICIENT_RESIDUAL_EVIDENCE`
+- clean example 6 stops earlier with `NO_CORE_POINTS`
+
+The diagnostic evidence result is not production reconstruction approval.
+The thresholds are provisional and may be revised only after testing additional
+positive and negative examples.
 
 Not yet implemented:
 

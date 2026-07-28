@@ -44,10 +44,13 @@ public final class EllipseReconstructionPlugin implements PlugIn {
     @Override
     public void run(final String arg) {
         IJ.log("Robust Ellipse Reconstruction Prototype started.");
-        IJ.log("Mode: PROPOSED_FILL_COMPONENT_DIAGNOSTICS");
+        IJ.log("Mode: ARTIFACT_EVIDENCE_DIAGNOSTICS");
         IJ.log("Input format: TRAINABLE_WEKA_CREATE_RESULT");
         IJ.log("Whole-ellipse fill: DIAGNOSTIC");
         IJ.log("Interval-associated fill: DIAGNOSTIC");
+        IJ.log("Artifact evidence gate: DIAGNOSTIC");
+        IJ.log("Evidence thresholds: PROTOTYPE_CONSERVATIVE");
+        IJ.log("Ellipse acceptance: NOT IMPLEMENTED");
         IJ.log("Component acceptance: NOT IMPLEMENTED");
         IJ.log("Source pixel modification: NOT APPLIED");
         IJ.log("Production reconstruction: NOT APPLIED");
@@ -299,13 +302,35 @@ public final class EllipseReconstructionPlugin implements PlugIn {
             showWholeVsAssociatedFillComparison(
                     image.getTitle(), residualProfile, outlierDetection, fillPreview,
                     componentAnalysis);
+
+            final ArtifactEvidenceAssessment evidenceAssessment;
+            try {
+                evidenceAssessment = new ArtifactEvidenceAssessor().assess(
+                        outlierDetection, refitResult, componentAnalysis);
+            } catch (IllegalArgumentException ex) {
+                IJ.log("Artifact evidence assessment failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Artifact evidence assessment failed:\n" + ex.getMessage());
+                return;
+            } catch (RuntimeException ex) {
+                IJ.log("Artifact evidence assessment failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Artifact evidence assessment failed:\n"
+                                + String.valueOf(ex.getMessage()));
+                return;
+            }
+
+            logArtifactEvidenceAssessment(evidenceAssessment);
+            showArtifactEvidenceVisualization(image.getTitle(), evidenceAssessment);
             showSummaryDialog(
                     result, residualProfile, outlierDetection, refitResult, fillPreview,
-                    componentAnalysis);
+                    componentAnalysis, evidenceAssessment);
             return;
         }
 
-        showSummaryDialog(result, residualProfile, outlierDetection, null, null, null);
+        showSummaryDialog(result, residualProfile, outlierDetection, null, null, null, null);
     }
 
     private static void logResultPixelHistogram(final ByteProcessor classified) {
@@ -1994,9 +2019,56 @@ public final class EllipseReconstructionPlugin implements PlugIn {
             final InwardOutlierDetectionResult outlierDetection,
             final SingleIntervalEllipseRefitResult refitResult,
             final RefittedEllipseFillPreviewResult fillPreview,
-            final ProposedFillComponentAnalysisResult componentAnalysis) {
+            final ProposedFillComponentAnalysisResult componentAnalysis,
+            final ArtifactEvidenceAssessment evidenceAssessment) {
         final StringBuilder message = new StringBuilder();
-        if (componentAnalysis != null) {
+        if (evidenceAssessment != null) {
+            message.append("Artifact evidence assessment completed.\n\n");
+            message.append("Decision: ").append(evidenceAssessment.getDecision().name())
+                    .append("\n");
+            message.append("Strong artifact evidence: ")
+                    .append(evidenceAssessment.isStrongArtifactEvidence()).append("\n");
+            message.append("Reason: ").append(evidenceAssessment.getDecisionReason())
+                    .append("\n\n");
+            message.append("Minimum depth sigma: ")
+                    .append(fmt(evidenceAssessment.getMinimumDepthSigma()))
+                    .append(" (required >= 5.0)\n");
+            message.append("Mean depth sigma: ")
+                    .append(fmt(evidenceAssessment.getMeanDepthSigma()))
+                    .append(" (required >= 3.0)\n");
+            message.append("Core fraction: ")
+                    .append(fmt(evidenceAssessment.getCoreFraction()))
+                    .append(" (required >= 0.15)\n");
+            message.append("Normalized integrated inward excess: ")
+                    .append(fmt(evidenceAssessment.getNormalizedIntegratedInwardExcess()))
+                    .append(" (required >= 1.50)\n");
+            message.append("Retained-wall RMS improvement: ")
+                    .append(fmt(evidenceAssessment.getRetainedRmsImprovementFraction()))
+                    .append(" (required >= 0.20)\n\n");
+            message.append("Interval-associated components: ")
+                    .append(evidenceAssessment.getIntervalAssociatedComponentCount())
+                    .append("\n");
+            message.append("Matched interval exterior seeds: ")
+                    .append(evidenceAssessment.getMatchedExteriorSeedPixelCount())
+                    .append("\n");
+            message.append("Unmatched interval exterior seeds: ")
+                    .append(evidenceAssessment.getUnmatchedExteriorSeedPixelCount())
+                    .append("\n");
+            message.append("Other Lumen inside ellipse: ")
+                    .append(evidenceAssessment.getOtherLumenInsideRefittedEllipseCount())
+                    .append("\n\n");
+            message.append("Associated fill fraction: ")
+                    .append(fmt(evidenceAssessment.getIntervalAssociatedFillFraction()))
+                    .append("\n");
+            message.append("Associated circularity change: ")
+                    .append(fmt(evidenceAssessment.getIntervalAssociatedCircularityChange()))
+                    .append("\n\n");
+            message.append("Circularity was not used for the decision.\n");
+            message.append("The evidence thresholds are conservative prototypes.\n");
+            message.append("No ellipse or component was accepted.\n");
+            message.append("The source image was not modified.\n");
+            message.append("Production reconstruction was not applied.");
+        } else if (componentAnalysis != null) {
             final ProposedFillComponent primary =
                     componentAnalysis.getPrimaryIntervalAssociatedComponent();
             final RefittedEllipseFillPreviewResult whole =
@@ -2835,5 +2907,205 @@ public final class EllipseReconstructionPlugin implements PlugIn {
             rgb.setColor(Color.YELLOW);
             rgb.drawString("MULTIPLE INCOMING MATCHES", left + 6, ty);
         }
+    }
+
+    private static void logArtifactEvidenceAssessment(
+            final ArtifactEvidenceAssessment assessment) {
+        IJ.log("Artifact evidence assessment:");
+        IJ.log("decision,strongArtifactEvidence,decisionReason,minimumDepthSigma,"
+                + "minimumDepthThreshold,minimumDepthPassed,meanDepthSigma,meanDepthThreshold,"
+                + "meanDepthPassed,corePointCount,intervalEdgeCount,coreFraction,"
+                + "coreFractionThreshold,coreFractionPassed,normalizedIntegratedInwardExcess,"
+                + "normalizedIntegratedExcessThreshold,integratedExcessPassed,"
+                + "retainedRmsImprovementFraction,retainedRmsImprovementThreshold,"
+                + "retainedRmsImprovementPassed,intervalAssociatedComponentCount,"
+                + "exactlyOneIntervalAssociatedComponent,matchedExteriorSeedPixels,"
+                + "unmatchedExteriorSeedPixels,matchedExteriorSeedFraction,"
+                + "allExteriorSeedsMatched,otherLumenInsideRefittedEllipseCount,"
+                + "noOtherLumenOverlap,structuralAssociationPassed,"
+                + "intervalAssociatedFillFraction,intervalAssociatedCircularityChange");
+        IJ.log(String.format(Locale.US,
+                "%s,%s,%s,%.6f,%.6f,%s,%.6f,%.6f,%s,%d,%d,%.6f,%.6f,%s,%.6f,%.6f,%s,%.6f,%.6f,%s,"
+                        + "%d,%s,%d,%d,%.6f,%s,%d,%s,%s,%.6f,%.6f",
+                assessment.getDecision().name(),
+                Boolean.toString(assessment.isStrongArtifactEvidence()),
+                sanitize(assessment.getDecisionReason()),
+                Double.valueOf(assessment.getMinimumDepthSigma()),
+                Double.valueOf(assessment.getMinimumDepthThreshold()),
+                Boolean.toString(assessment.isMinimumDepthPassed()),
+                Double.valueOf(assessment.getMeanDepthSigma()),
+                Double.valueOf(assessment.getMeanDepthThreshold()),
+                Boolean.toString(assessment.isMeanDepthPassed()),
+                Integer.valueOf(assessment.getCorePointCount()),
+                Integer.valueOf(assessment.getIntervalEdgeCount()),
+                Double.valueOf(assessment.getCoreFraction()),
+                Double.valueOf(assessment.getCoreFractionThreshold()),
+                Boolean.toString(assessment.isCoreFractionPassed()),
+                Double.valueOf(assessment.getNormalizedIntegratedInwardExcess()),
+                Double.valueOf(assessment.getNormalizedIntegratedExcessThreshold()),
+                Boolean.toString(assessment.isIntegratedExcessPassed()),
+                Double.valueOf(assessment.getRetainedRmsImprovementFraction()),
+                Double.valueOf(assessment.getRetainedRmsImprovementThreshold()),
+                Boolean.toString(assessment.isRetainedRmsImprovementPassed()),
+                Integer.valueOf(assessment.getIntervalAssociatedComponentCount()),
+                Boolean.toString(assessment.isExactlyOneIntervalAssociatedComponent()),
+                Integer.valueOf(assessment.getMatchedExteriorSeedPixelCount()),
+                Integer.valueOf(assessment.getUnmatchedExteriorSeedPixelCount()),
+                Double.valueOf(assessment.getMatchedExteriorSeedFraction()),
+                Boolean.toString(assessment.isAllExteriorSeedsMatched()),
+                Integer.valueOf(assessment.getOtherLumenInsideRefittedEllipseCount()),
+                Boolean.toString(assessment.isNoOtherLumenOverlap()),
+                Boolean.toString(assessment.isStructuralAssociationPassed()),
+                Double.valueOf(assessment.getIntervalAssociatedFillFraction()),
+                Double.valueOf(assessment.getIntervalAssociatedCircularityChange())));
+        IJ.log("IMPORTANT:");
+        IJ.log("This is a diagnostic artifact-evidence assessment.");
+        IJ.log("Interval uniqueness alone is not treated as strong evidence.");
+        IJ.log("Circularity does not control the evidence decision.");
+        IJ.log("No ellipse or component was accepted for reconstruction.");
+        IJ.log("The source image was not modified.");
+        IJ.log("Production reconstruction was not applied.");
+    }
+
+    private static void showArtifactEvidenceVisualization(
+            final String sourceTitle,
+            final ArtifactEvidenceAssessment assessment) {
+        final int width = 760;
+        final int height = 500;
+        final ColorProcessor rgb = new ColorProcessor(width, height);
+        rgb.setColor(Color.BLACK);
+        rgb.fill();
+
+        final Color pass = new Color(40, 180, 70);
+        final Color fail = new Color(220, 50, 50);
+        final Color marker = new Color(160, 160, 160);
+
+        int y = 28;
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 16));
+        rgb.drawString("ARTIFACT EVIDENCE ASSESSMENT", 20, y);
+        y += 28;
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 13));
+        rgb.drawString("Decision:", 20, y);
+        rgb.setColor(assessment.isStrongArtifactEvidence() ? pass : fail);
+        rgb.drawString(assessment.getDecision().name(), 120, y);
+        y += 20;
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.PLAIN, 11));
+        rgb.drawString("Reason: " + assessment.getDecisionReason(), 20, y);
+        y += 28;
+
+        y = drawEvidenceBarRow(rgb, 20, y, "MINIMUM DEPTH SIGMA",
+                assessment.getMinimumDepthSigma(),
+                assessment.getMinimumDepthThreshold(),
+                assessment.isMinimumDepthPassed(), pass, fail, marker);
+        y = drawEvidenceBarRow(rgb, 20, y, "MEAN DEPTH SIGMA",
+                assessment.getMeanDepthSigma(),
+                assessment.getMeanDepthThreshold(),
+                assessment.isMeanDepthPassed(), pass, fail, marker);
+        y = drawEvidenceBarRow(rgb, 20, y, "CORE FRACTION",
+                assessment.getCoreFraction(),
+                assessment.getCoreFractionThreshold(),
+                assessment.isCoreFractionPassed(), pass, fail, marker);
+        y = drawEvidenceBarRow(rgb, 20, y, "NORMALIZED INTEGRATED EXCESS",
+                assessment.getNormalizedIntegratedInwardExcess(),
+                assessment.getNormalizedIntegratedExcessThreshold(),
+                assessment.isIntegratedExcessPassed(), pass, fail, marker);
+        y = drawEvidenceBarRow(rgb, 20, y, "RETAINED RMS IMPROVEMENT",
+                assessment.getRetainedRmsImprovementFraction(),
+                assessment.getRetainedRmsImprovementThreshold(),
+                assessment.isRetainedRmsImprovementPassed(), pass, fail, marker);
+
+        y += 10;
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 12));
+        rgb.drawString("STRUCTURAL EVIDENCE", 20, y);
+        y += 18;
+        rgb.setFont(new Font("Monospaced", Font.PLAIN, 11));
+        rgb.drawString("associated components="
+                + assessment.getIntervalAssociatedComponentCount(), 20, y);
+        y += 14;
+        rgb.drawString("matched seeds="
+                + assessment.getMatchedExteriorSeedPixelCount(), 20, y);
+        y += 14;
+        rgb.drawString("unmatched seeds="
+                + assessment.getUnmatchedExteriorSeedPixelCount(), 20, y);
+        y += 14;
+        rgb.drawString("other Lumen overlap="
+                + assessment.getOtherLumenInsideRefittedEllipseCount(), 20, y);
+        y += 14;
+        rgb.setColor(assessment.isStructuralAssociationPassed() ? pass : fail);
+        rgb.drawString("structural association="
+                + (assessment.isStructuralAssociationPassed() ? "PASS" : "FAIL"), 20, y);
+        y += 22;
+
+        rgb.setColor(Color.LIGHT_GRAY);
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 11));
+        rgb.drawString("SECONDARY DIAGNOSTICS ONLY", 20, y);
+        y += 14;
+        rgb.setFont(new Font("Monospaced", Font.PLAIN, 11));
+        rgb.drawString("NOT USED FOR DECISION", 20, y);
+        y += 14;
+        rgb.drawString("associated fill fraction="
+                + fmt(assessment.getIntervalAssociatedFillFraction()), 20, y);
+        y += 14;
+        rgb.drawString("associated circularity change="
+                + fmt(assessment.getIntervalAssociatedCircularityChange()), 20, y);
+        y += 24;
+
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 12));
+        rgb.drawString("DIAGNOSTIC ONLY", 20, y);
+        y += 16;
+        rgb.setFont(new Font("Monospaced", Font.PLAIN, 11));
+        rgb.drawString("NO ELLIPSE ACCEPTANCE", 20, y);
+        y += 14;
+        rgb.drawString("NO COMPONENT ACCEPTANCE", 20, y);
+        y += 14;
+        rgb.drawString("SOURCE IMAGE NOT MODIFIED", 20, y);
+        y += 14;
+        rgb.drawString("NO PRODUCTION RECONSTRUCTION", 20, y);
+
+        new ImagePlus("Artifact Evidence Assessment - " + sourceTitle, rgb).show();
+    }
+
+    private static int drawEvidenceBarRow(
+            final ColorProcessor rgb,
+            final int x,
+            final int y,
+            final String label,
+            final double value,
+            final double threshold,
+            final boolean passed,
+            final Color pass,
+            final Color fail,
+            final Color marker) {
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 11));
+        rgb.drawString(label, x, y);
+        int row = y + 14;
+        rgb.setFont(new Font("Monospaced", Font.PLAIN, 11));
+        rgb.setColor(passed ? pass : fail);
+        rgb.drawString(String.format(Locale.US,
+                "value=%.6f  required>=%.2f  %s",
+                Double.valueOf(value),
+                Double.valueOf(threshold),
+                passed ? "PASS" : "FAIL"), x, row);
+        row += 8;
+        final int barX = x;
+        final int barY = row;
+        final int barW = 420;
+        final int barH = 10;
+        rgb.setColor(new Color(50, 50, 50));
+        rgb.fillRect(barX, barY, barW, barH);
+        final double scaleMax = Math.max(threshold * 1.5, Math.max(value, 0.0) * 1.1);
+        final double denom = scaleMax <= 0.0 ? 1.0 : scaleMax;
+        final int valueW = (int) Math.round((Math.max(0.0, value) / denom) * barW);
+        final int threshX = barX + (int) Math.round((threshold / denom) * barW);
+        rgb.setColor(passed ? pass : fail);
+        rgb.fillRect(barX, barY, Math.max(0, Math.min(barW, valueW)), barH);
+        rgb.setColor(marker);
+        rgb.drawLine(threshX, barY - 2, threshX, barY + barH + 2);
+        return row + barH + 16;
     }
 }
