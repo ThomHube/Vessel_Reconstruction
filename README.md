@@ -146,6 +146,30 @@ The diagnostic evidence result is not production reconstruction approval.
 The thresholds are provisional and may be revised only after testing additional
 positive and negative examples.
 
+### Diagnostic reconstructed copy
+
+When conservative artifact evidence is strong and the structural association
+checks pass, the plugin may create a diagnostic reconstructed image copy:
+
+- the active classified `ByteProcessor` is copied; the source is never modified
+- only the primary interval-associated proposed-fill component pixels are changed
+- only raw Weka result value `0` (Wood) is converted to raw value `2` (Lumen)
+- Ray, Background, unknown, and existing Lumen pixels are never converted
+- non-associated ellipse-fill components remain unchanged
+- observed Lumen pixels are not removed
+- a binary change mask and a two-panel review image are shown
+- output is never saved automatically
+- clean or insufficient-evidence vessels create no reconstructed copy
+
+Verified regression outcomes for the copy gate:
+
+- positive example 2 → `READY_FOR_DIAGNOSTIC_COPY` (primary associated Wood → Lumen)
+- clean example 7 → `INSUFFICIENT_ARTIFACT_EVIDENCE` (no copy, no change mask)
+
+This remains diagnostic reconstruction only. Evidence thresholds are unchanged
+and still provisional. Broader positive and negative validation is still
+required. Production reconstruction remains disabled.
+
 ### External / core sources evaluated
 
 - ImageJ Wand FOUR_CONNECTED
@@ -171,7 +195,12 @@ positive and negative examples.
 The diagonal checkerboard topology policy for exact contacts is `RIGHT_TURN_SAME_FACE`.
 All other ambiguous lattice configurations remain rejected.
 
-Detection, refit, fill preview, and component association are diagnostic only. The selected interval is excluded only from mathematical fit support. Fill previews are additive and in-memory. No classified pixels are removed or changed. The interval-associated preview is diagnostic only; no component is currently accepted or rejected. Circularity remains a secondary diagnostic.
+Detection, refit, fill preview, component association, evidence assessment, and
+the optional diagnostic reconstructed copy are diagnostic only. The selected
+interval is excluded only from mathematical fit support. Fill previews are
+additive and in-memory. The classified source image is never modified. When a
+diagnostic copy is created, only primary interval-associated Wood pixels become
+Lumen in that independent duplicate. Circularity remains a secondary diagnostic.
 
 ### Not implemented
 
@@ -179,14 +208,12 @@ Detection, refit, fill preview, and component association are diagnostic only. T
 - ellipse acceptance
 - automatic choice between whole and associated fill
 - source-image modification
-- saving a reconstructed classified image
+- automatic saving of a reconstructed classified image
 - processing all vessels
 - iterative interval exclusion
 - broader non-elliptical vessel handling
 - repeated interval detection after refitting
 - stopping based on parameter stability
-- pixel modification
-- reconstruction
 - production reconstruction
 
 The classified source image is never modified. Circularity is not optimized and the ellipse is not forced to become a circle.

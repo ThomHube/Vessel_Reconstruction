@@ -44,15 +44,18 @@ public final class EllipseReconstructionPlugin implements PlugIn {
     @Override
     public void run(final String arg) {
         IJ.log("Robust Ellipse Reconstruction Prototype started.");
-        IJ.log("Mode: ARTIFACT_EVIDENCE_DIAGNOSTICS");
+        IJ.log("Mode: DIAGNOSTIC_RECONSTRUCTED_COPY");
         IJ.log("Input format: TRAINABLE_WEKA_CREATE_RESULT");
         IJ.log("Whole-ellipse fill: DIAGNOSTIC");
         IJ.log("Interval-associated fill: DIAGNOSTIC");
         IJ.log("Artifact evidence gate: DIAGNOSTIC");
         IJ.log("Evidence thresholds: PROTOTYPE_CONSERVATIVE");
+        IJ.log("Diagnostic copy eligibility: CONSERVATIVE_ARTIFACT_EVIDENCE");
+        IJ.log("Diagnostic pixel conversion: WOOD_RESULT_VALUE_0_TO_LUMEN_RESULT_VALUE_2");
         IJ.log("Ellipse acceptance: NOT IMPLEMENTED");
         IJ.log("Component acceptance: NOT IMPLEMENTED");
-        IJ.log("Source pixel modification: NOT APPLIED");
+        IJ.log("Source image modification: DISABLED");
+        IJ.log("Automatic file saving: DISABLED");
         IJ.log("Production reconstruction: NOT APPLIED");
         IJ.log("Diagonal boundary-contact policy:");
         IJ.log("Exact checkerboard contact = RIGHT_TURN_SAME_FACE");
@@ -324,13 +327,81 @@ public final class EllipseReconstructionPlugin implements PlugIn {
 
             logArtifactEvidenceAssessment(evidenceAssessment);
             showArtifactEvidenceVisualization(image.getTitle(), evidenceAssessment);
+
+            final DiagnosticReconstructionCandidate reconstructionCandidate;
+            try {
+                reconstructionCandidate = new DiagnosticReconstructionBuilder().evaluate(
+                        classified, evidenceAssessment, componentAnalysis);
+            } catch (IllegalArgumentException ex) {
+                IJ.log("Diagnostic reconstruction evaluation failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Diagnostic reconstruction evaluation failed:\n" + ex.getMessage());
+                return;
+            } catch (RuntimeException ex) {
+                IJ.log("Diagnostic reconstruction evaluation failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Diagnostic reconstruction evaluation failed:\n"
+                                + String.valueOf(ex.getMessage()));
+                return;
+            }
+
+            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Internal error: classified image was modified.");
+                return;
+            }
+
+            logDiagnosticReconstructionCandidate(reconstructionCandidate);
+
+            if (reconstructionCandidate.isReadyForDiagnosticCopy()) {
+                final DiagnosticReconstructionBuilder builder =
+                        new DiagnosticReconstructionBuilder();
+                final ByteProcessor diagnosticCopy = builder.createDiagnosticCopy(
+                        classified, reconstructionCandidate);
+                final ByteProcessor changeMask = builder.createChangeMask(
+                        reconstructionCandidate);
+
+                if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+                    IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+                    IJ.error(
+                            "Robust Ellipse Reconstruction Prototype",
+                            "Internal error: classified image was modified.");
+                    return;
+                }
+
+                final String copyTitle = "Diagnostic Reconstructed Copy - " + image.getTitle();
+                final String maskTitle =
+                        "Diagnostic Reconstruction Change Mask - " + image.getTitle();
+                new ImagePlus(copyTitle, diagnosticCopy).show();
+                new ImagePlus(maskTitle, changeMask).show();
+                logDiagnosticReconstructedCopy(image.getTitle(), copyTitle,
+                        reconstructionCandidate);
+                showDiagnosticReconstructionReview(
+                        image.getTitle(),
+                        classified,
+                        diagnosticCopy,
+                        reconstructionCandidate,
+                        residualProfile,
+                        outlierDetection,
+                        refitResult);
+            } else {
+                IJ.log("DIAGNOSTIC RECONSTRUCTED COPY NOT CREATED");
+                IJ.log("decision=" + reconstructionCandidate.getDecision().name());
+                IJ.log("reason=" + reconstructionCandidate.getDecisionReason());
+            }
+
             showSummaryDialog(
                     result, residualProfile, outlierDetection, refitResult, fillPreview,
-                    componentAnalysis, evidenceAssessment);
+                    componentAnalysis, evidenceAssessment, reconstructionCandidate);
             return;
         }
 
-        showSummaryDialog(result, residualProfile, outlierDetection, null, null, null, null);
+        showSummaryDialog(
+                result, residualProfile, outlierDetection, null, null, null, null, null);
     }
 
     private static void logResultPixelHistogram(final ByteProcessor classified) {
@@ -2020,9 +2091,48 @@ public final class EllipseReconstructionPlugin implements PlugIn {
             final SingleIntervalEllipseRefitResult refitResult,
             final RefittedEllipseFillPreviewResult fillPreview,
             final ProposedFillComponentAnalysisResult componentAnalysis,
-            final ArtifactEvidenceAssessment evidenceAssessment) {
+            final ArtifactEvidenceAssessment evidenceAssessment,
+            final DiagnosticReconstructionCandidate reconstructionCandidate) {
         final StringBuilder message = new StringBuilder();
-        if (evidenceAssessment != null) {
+        if (reconstructionCandidate != null) {
+            if (reconstructionCandidate.isReadyForDiagnosticCopy()) {
+                message.append("Diagnostic reconstructed copy created.\n\n");
+                message.append("Changed pixels: ")
+                        .append(reconstructionCandidate.getPixelCount()).append("\n");
+                message.append("Original value: 0 = Wood\n");
+                message.append("New value: 2 = Lumen\n");
+                message.append("Original selected-Lumen area: ")
+                        .append(reconstructionCandidate.getOriginalSelectedLumenArea())
+                        .append("\n");
+                message.append("Diagnostic reconstructed area: ")
+                        .append(reconstructionCandidate.getDiagnosticReconstructedArea())
+                        .append("\n");
+                message.append("Diagnostic reconstructed perimeter: ")
+                        .append(reconstructionCandidate.getDiagnosticReconstructedPerimeter())
+                        .append("\n");
+                message.append("Diagnostic reconstructed circularity: ")
+                        .append(fmt(reconstructionCandidate
+                                .getDiagnosticReconstructedCircularity()))
+                        .append("\n");
+                message.append("Circularity change: ")
+                        .append(fmt(reconstructionCandidate.getDiagnosticCircularityChange()))
+                        .append("\n");
+                message.append("Added area fraction: ")
+                        .append(fmt(reconstructionCandidate.getAddedAreaFraction()))
+                        .append("\n\n");
+                message.append("The source image was not modified.\n");
+                message.append("The output was not saved automatically.\n");
+                message.append("This is not production reconstruction.");
+            } else {
+                message.append("Diagnostic reconstructed copy was not created.\n\n");
+                message.append("Decision: ")
+                        .append(reconstructionCandidate.getDecision().name()).append("\n");
+                message.append("Reason: ")
+                        .append(reconstructionCandidate.getDecisionReason()).append("\n\n");
+                message.append("The source image was not modified.\n");
+                message.append("Production reconstruction was not applied.");
+            }
+        } else if (evidenceAssessment != null) {
             message.append("Artifact evidence assessment completed.\n\n");
             message.append("Decision: ").append(evidenceAssessment.getDecision().name())
                     .append("\n");
@@ -3107,5 +3217,178 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         rgb.setColor(marker);
         rgb.drawLine(threshX, barY - 2, threshX, barY + barH + 2);
         return row + barH + 16;
+    }
+
+    private static void logDiagnosticReconstructionCandidate(
+            final DiagnosticReconstructionCandidate candidate) {
+        IJ.log("Diagnostic reconstruction candidate:");
+        IJ.log("decision,readyForDiagnosticCopy,decisionReason,pixelCount,woodPixels,rayPixels,"
+                + "lumenPixels,backgroundPixels,otherPixels,primaryComponentId,"
+                + "primaryComponentArea,originalSelectedLumenArea,diagnosticReconstructedArea,"
+                + "diagnosticReconstructedPerimeter,diagnosticReconstructedCircularity,"
+                + "diagnosticCircularityChange,addedAreaFraction,sourceChecksumBefore,"
+                + "sourceChecksumAfter,sourceUnchanged");
+        IJ.log(String.format(Locale.US,
+                "%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%.6f,%.6f,%d,%d,%s",
+                candidate.getDecision().name(),
+                Boolean.toString(candidate.isReadyForDiagnosticCopy()),
+                sanitize(candidate.getDecisionReason()),
+                Integer.valueOf(candidate.getPixelCount()),
+                Integer.valueOf(candidate.getOriginalWoodPixelCount()),
+                Integer.valueOf(candidate.getOriginalRayPixelCount()),
+                Integer.valueOf(candidate.getOriginalLumenPixelCount()),
+                Integer.valueOf(candidate.getOriginalBackgroundPixelCount()),
+                Integer.valueOf(candidate.getOriginalOtherPixelCount()),
+                Integer.valueOf(candidate.getPrimaryAssociatedComponentId()),
+                Integer.valueOf(candidate.getPrimaryAssociatedComponentArea()),
+                Integer.valueOf(candidate.getOriginalSelectedLumenArea()),
+                Integer.valueOf(candidate.getDiagnosticReconstructedArea()),
+                Integer.valueOf(candidate.getDiagnosticReconstructedPerimeter()),
+                Double.valueOf(candidate.getDiagnosticReconstructedCircularity()),
+                Double.valueOf(candidate.getDiagnosticCircularityChange()),
+                Double.valueOf(candidate.getAddedAreaFraction()),
+                Integer.valueOf(candidate.getSourceChecksumBeforeEvaluation()),
+                Integer.valueOf(candidate.getSourceChecksumAfterEvaluation()),
+                Boolean.toString(candidate.isSourceUnchangedDuringEvaluation())));
+    }
+
+    private static void logDiagnosticReconstructedCopy(
+            final String sourceTitle,
+            final String outputTitle,
+            final DiagnosticReconstructionCandidate candidate) {
+        IJ.log("Diagnostic reconstructed copy:");
+        IJ.log("sourceTitle,outputTitle,changedPixelCount,originalValue,targetValue,"
+                + "sourceModified,outputAutomaticallySaved");
+        IJ.log(String.format(Locale.US,
+                "%s,%s,%d,%d,%d,%s,%s",
+                sanitize(sourceTitle),
+                sanitize(outputTitle),
+                Integer.valueOf(candidate.getPixelCount()),
+                Integer.valueOf(ClassifierLabels.WOOD_RESULT_VALUE),
+                Integer.valueOf(ClassifierLabels.LUMEN_RESULT_VALUE),
+                "false",
+                "false"));
+        IJ.log("IMPORTANT:");
+        IJ.log("Only the primary interval-associated component was changed in the diagnostic");
+        IJ.log("copy.");
+        IJ.log("Non-associated ellipse-fill components were not changed.");
+        IJ.log("Observed Lumen pixels were not removed.");
+        IJ.log("Another Lumen component was not merged.");
+        IJ.log("The original classified image was not modified.");
+        IJ.log("The diagnostic outputs were not saved automatically.");
+        IJ.log("Production reconstruction was not applied.");
+    }
+
+    private static void showDiagnosticReconstructionReview(
+            final String sourceTitle,
+            final ByteProcessor original,
+            final ByteProcessor reconstructed,
+            final DiagnosticReconstructionCandidate candidate,
+            final OrderedBoundaryResidualProfile residualProfile,
+            final InwardOutlierDetectionResult outlierDetection,
+            final SingleIntervalEllipseRefitResult refitResult) {
+        final int srcW = original.getWidth();
+        final int srcH = original.getHeight();
+        final int gap = 16;
+        final int textH = 160;
+        final int canvasW = srcW * 2 + gap + 24;
+        final int canvasH = srcH + textH + 40;
+        final ColorProcessor rgb = new ColorProcessor(canvasW, canvasH);
+        rgb.setColor(Color.BLACK);
+        rgb.fill();
+
+        final int leftX = 12;
+        final int rightX = 12 + srcW + gap;
+        final int panelY = 28;
+        paintClassifiedPanel(rgb, original, leftX, panelY);
+        paintClassifiedPanel(rgb, reconstructed, rightX, panelY);
+
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 12));
+        rgb.drawString("ORIGINAL CLASSIFIED IMAGE", leftX, 18);
+        rgb.drawString("DIAGNOSTIC RECONSTRUCTED COPY", rightX, 18);
+
+        // Cyan outline around changed pixels on the right panel.
+        final List<Point> changed = candidate.getPixelsToChange();
+        rgb.setColor(Color.CYAN);
+        for (int i = 0; i < changed.size(); i++) {
+            final Point p = changed.get(i);
+            rgb.drawRect(rightX + p.x - 1, panelY + p.y - 1, 3, 3);
+        }
+
+        final EllipseModel ellipse = refitResult.getIntervalExcludedFit().getFittedEllipse();
+        drawFittedEllipseOffset(rgb, ellipse, Color.WHITE, leftX, panelY);
+        drawFittedEllipseOffset(rgb, ellipse, Color.WHITE, rightX, panelY);
+        if (outlierDetection.isIntervalSelected()) {
+            drawIntervalEdgesOffset(rgb, residualProfile, outlierDetection.getSelectedInterval(),
+                    Color.MAGENTA, leftX, panelY);
+            drawIntervalEdgesOffset(rgb, residualProfile, outlierDetection.getSelectedInterval(),
+                    Color.MAGENTA, rightX, panelY);
+        }
+
+        int ty = panelY + srcH + 24;
+        rgb.setColor(Color.WHITE);
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 13));
+        rgb.drawString("DIAGNOSTIC RECONSTRUCTION REVIEW", 12, ty);
+        ty += 18;
+        rgb.setFont(new Font("Monospaced", Font.PLAIN, 11));
+        rgb.drawString("changed pixels=" + candidate.getPixelCount(), 12, ty);
+        ty += 14;
+        rgb.drawString("original area=" + candidate.getOriginalSelectedLumenArea(), 12, ty);
+        ty += 14;
+        rgb.drawString("reconstructed area="
+                + candidate.getDiagnosticReconstructedArea(), 12, ty);
+        ty += 14;
+        rgb.drawString("original circularity="
+                + fmt(candidate.getDiagnosticReconstructedCircularity()
+                - candidate.getDiagnosticCircularityChange()), 12, ty);
+        ty += 14;
+        rgb.drawString("reconstructed circularity="
+                + fmt(candidate.getDiagnosticReconstructedCircularity()), 12, ty);
+        ty += 14;
+        rgb.drawString("circularity change="
+                + fmt(candidate.getDiagnosticCircularityChange()), 12, ty);
+        ty += 14;
+        rgb.drawString("added area fraction="
+                + fmt(candidate.getAddedAreaFraction()), 12, ty);
+        ty += 18;
+        rgb.setFont(new Font("Monospaced", Font.BOLD, 11));
+        rgb.drawString("ONLY PRIMARY INTERVAL-ASSOCIATED WOOD WAS CHANGED", 12, ty);
+        ty += 14;
+        rgb.drawString("SOURCE IMAGE UNCHANGED", 12, ty);
+        ty += 14;
+        rgb.drawString("OUTPUT NOT SAVED", 12, ty);
+        ty += 14;
+        rgb.drawString("NOT PRODUCTION RECONSTRUCTION", 12, ty);
+
+        new ImagePlus("Diagnostic Reconstruction Review - " + sourceTitle, rgb).show();
+    }
+
+    private static void paintClassifiedPanel(
+            final ColorProcessor rgb,
+            final ByteProcessor source,
+            final int offsetX,
+            final int offsetY) {
+        final int w = source.getWidth();
+        final int h = source.getHeight();
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                final int value = source.get(x, y) & 0xff;
+                final Color color;
+                if (value == ClassifierLabels.WOOD_RESULT_VALUE) {
+                    color = COLOR_WOOD;
+                } else if (value == ClassifierLabels.RAY_RESULT_VALUE) {
+                    color = COLOR_RAY;
+                } else if (value == ClassifierLabels.LUMEN_RESULT_VALUE) {
+                    color = COLOR_SELECTED_LUMEN;
+                } else if (value == ClassifierLabels.BACKGROUND_RESULT_VALUE) {
+                    color = COLOR_BACKGROUND_FILL;
+                } else {
+                    color = COLOR_OTHER_CLASS;
+                }
+                rgb.setColor(color);
+                rgb.drawPixel(offsetX + x, offsetY + y);
+            }
+        }
     }
 }

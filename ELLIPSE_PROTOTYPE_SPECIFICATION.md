@@ -5,7 +5,7 @@
 - **Algorithm:** Robust Ellipse Reconstruction
 - **Project directory:** `/home/thomas/IdeaProjects/minimal-ij1-plugin-ellipse`
 - **Artifact:** `VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar`
-- **Status:** Initial free-ellipse fit, inward-outlier interval detection, single-interval diagnostic refit, source-safe fill preview, and proposed-fill component association diagnostics implemented; component/ellipse acceptance and production reconstruction remain unimplemented
+- **Status:** Initial free-ellipse fit, inward-outlier interval detection, single-interval diagnostic refit, source-safe fill preview, proposed-fill component association, conservative artifact-evidence gate, and optional source-safe diagnostic reconstructed copy implemented; component/ellipse acceptance and production reconstruction remain unimplemented
 - **Independence:** This repository does not contain the legacy contour bridgepoint algorithm
 
 ## Mathematical free-ellipse stage
@@ -67,6 +67,9 @@ Implemented:
 - first-failure ambiguous lattice-vertex diagnostics for ordered-boundary extraction
 - ImageJ core boundary reference audit (ThresholdToSelection, Wand FOUR/EIGHT)
 - diagnostic artifact-evidence assessment after interval, refit, and fill-component stages
+- optional diagnostic reconstructed copy when strong evidence and structural association pass
+- source-safe Wood→Lumen conversion limited to the primary interval-associated component
+- diagnostic change mask and two-panel reconstruction review visualization
 
 The initial ellipse may be influenced by the artifact because all observed
 boundary points are included.
@@ -128,13 +131,16 @@ The diagonal checkerboard topology policy for exact contacts is
 `RIGHT_TURN_SAME_FACE`. All other ambiguous lattice configurations remain
 rejected.
 
-Detection, single-interval refit, fill preview, and component association are
-diagnostic only. The selected interval is excluded only from mathematical fit
-support. Fill previews are additive and in-memory. No classified pixels are
-removed or changed. The interval-associated preview is diagnostic only; no
-component is currently accepted or rejected. Circularity remains a secondary
-diagnostic and does not control the ellipse fit or automatically approve
-reconstruction. Prototype constants are not final biological thresholds.
+Detection, single-interval refit, fill preview, component association, evidence
+assessment, and the optional diagnostic reconstructed copy are diagnostic only.
+The selected interval is excluded only from mathematical fit support. Fill
+previews are additive and in-memory. The classified source image is never
+modified. When a diagnostic copy is created, only primary interval-associated
+Wood pixels become Lumen in that independent duplicate; non-associated fill
+components are unchanged, output is not saved automatically, and production
+reconstruction remains disabled. Circularity remains a secondary diagnostic and
+does not control the ellipse fit or readiness. Prototype evidence thresholds are
+not final biological thresholds.
 
 ### Artifact evidence gate
 
@@ -174,6 +180,30 @@ The diagnostic evidence result is not production reconstruction approval.
 The thresholds are provisional and may be revised only after testing additional
 positive and negative examples.
 
+### Diagnostic reconstructed copy
+
+When `STRONG_ARTIFACT_EVIDENCE` and the structural association checks pass, the
+plugin may create a diagnostic reconstructed image copy:
+
+- copy the active classified `ByteProcessor`; never modify the source
+- change exactly the primary interval-associated component pixels
+- convert only raw Weka result value `0` (Wood) to raw value `2` (Lumen)
+- do not convert Ray, Background, unknown, or existing Lumen values
+- leave non-associated ellipse-fill components unchanged
+- do not remove observed Lumen pixels
+- show a binary change mask and a two-panel review image
+- never save output automatically
+- create no reconstructed copy for clean or insufficient-evidence vessels
+
+Verified regression outcomes for the copy gate:
+
+- positive example 2 → `READY_FOR_DIAGNOSTIC_COPY`
+- clean example 7 → `INSUFFICIENT_ARTIFACT_EVIDENCE` (no copy, no change mask)
+
+This is still not production reconstruction. Evidence thresholds remain
+unchanged and provisional. Broader positive and negative validation is still
+required.
+
 Not yet implemented:
 
 - component acceptance thresholds
@@ -181,14 +211,12 @@ Not yet implemented:
 - automatic choice between whole and associated fill
 - automatic reconstruction approval
 - source-image modification
-- saving a reconstructed classified image
+- automatic saving of a reconstructed classified image
 - processing all vessels
 - iterative interval exclusion
 - broader non-elliptical vessel handling
 - repeated interval detection after refitting
 - stopping based on parameter stability
-- reconstruction
-- pixel modification
 - production reconstruction
 
 ## Fixed classifier mapping
