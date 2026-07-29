@@ -38,30 +38,56 @@ The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
 
 ## Plugin modes
 
-### 1. Detailed single-lumen development mode
+### 1. Robust Ellipse Reconstruction Prototype
 
-Menu: **Robust Ellipse Reconstruction Prototype**
-
-- processes the currently selected/largest Lumen
-- opens detailed diagnostic windows
-- used for algorithm development and debugging
+- automatically selected single component (largest / deterministic tie-break)
+- detailed diagnostic windows
+- development mode
 - source image remains unchanged
 
-### 2. All-lumen diagnostic mode
+### 2. Robust Ellipse Reconstruction - All Lumina
 
-Menu: **Robust Ellipse Reconstruction - All Lumina**
-
-- processes every Class 3 Lumen component independently
-- one result row per component
-- no per-lumen diagnostic windows
-- at most: one ResultsTable, one decision overview, one combined reconstructed copy, one combined change mask
-- `SUMMARY_ONLY` shows those combined outputs
-- `SILENT` creates no windows, tables, or dialogs; only a concise log summary
-- all components are analyzed against the unchanged original classified image
-- accepted non-conflicting Wood→Lumen candidates are combined into one diagnostic duplicate
+- every Class 3 Lumen component
+- combined summary
+- optional silent processing
+- no per-lumen windows
 - source image remains unchanged
 - no automatic saving
 - directory/stack processing is not implemented
+
+### 3. Robust Ellipse Reconstruction - Inspect Component ID
+
+- uses the active classified image
+- extracts the same deterministic component IDs as All Lumina
+- user enters an ID from the all-lumen ResultsTable or overview
+- opens detailed diagnostics only for that component
+- no manual crop required
+- no batch area filter is applied
+- border-touching components can be inspected
+- source image remains unchanged
+
+Component IDs are image-local.
+The same vessel may receive a different ID after:
+
+- cropping
+- resizing
+- rotation
+- image editing
+- reclassification
+- any change that alters component discovery order
+
+Intended validation workflow:
+
+1. Run All Lumina
+2. Review ResultsTable and overview
+3. Note a component ID
+4. Keep the same classified image active
+5. Run Inspect Component ID
+6. Enter the ID
+7. Inspect detailed diagnostics
+
+The inspector does not change thresholds, ellipse fitting, interval detection,
+artifact evidence, or reconstruction rules.
 
 Supported all-lumen scope:
 

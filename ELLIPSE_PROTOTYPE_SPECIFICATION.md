@@ -239,6 +239,25 @@ Display policies:
 - `SUMMARY_ONLY`: at most one ResultsTable, one decision overview, one combined copy, one combined mask
 - `SILENT`: no windows, tables, or dialogs; concise log only
 
+### Component-ID inspector
+
+Menu: **Robust Ellipse Reconstruction - Inspect Component ID**
+
+- uses the active classified image
+- extracts the same deterministic component IDs as All Lumina
+- user enters an ID from the all-lumen ResultsTable or overview
+- opens the unchanged detailed single-lumen diagnostics for exactly that component
+- no manual crop, no batch area filter, no automatic border skip
+- source image remains unchanged
+
+Component IDs are image-local. Cropping, resizing, rotation, editing,
+reclassification, or any change that alters discovery order may change IDs.
+
+Intended workflow:
+
+Run All Lumina → note a component ID → keep the same classified image active →
+Inspect Component ID → enter the ID → review detailed diagnostics.
+
 Detailed single-lumen mode remains available for development and continues to
 open per-lumen diagnostic windows.
 

@@ -43,6 +43,506 @@ public final class EllipseReconstructionPlugin implements PlugIn {
 
     @Override
     public void run(final String arg) {
+        logDetailedStartupBanner();
+        IJ.log("Detailed component-selection mode:");
+        IJ.log("AUTO_SELECTED_COMPONENT");
+
+        final ImagePlus image = WindowManager.getCurrentImage();
+        if (image == null) {
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "An 8-bit classified image must be opened and active.");
+            return;
+        }
+
+        final ImageProcessor processor = image.getProcessor();
+        if (processor == null || !(processor instanceof ByteProcessor)) {
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "The active image must be an 8-bit classified image.\n"
+                            + "RGB, 16-bit and 32-bit images are not supported.");
+            return;
+        }
+
+        final ByteProcessor classified = (ByteProcessor) processor;
+        final byte[] sourcePixels = (byte[]) classified.getPixels();
+        final byte[] originalPixels = copyBytes(sourcePixels);
+
+        logResultPixelHistogram(classified);
+
+        final InitialEllipseAnalysisResult result;
+        try {
+            result = new InitialEllipseAnalyzer().analyze(classified);
+        } catch (IllegalArgumentException ex) {
+            IJ.log("Initial ellipse analysis failed: " + ex.getMessage());
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Initial ellipse analysis failed:\n" + ex.getMessage());
+            return;
+        } catch (RuntimeException ex) {
+            IJ.log("Initial ellipse analysis failed: " + ex.getMessage());
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Initial ellipse analysis failed:\n" + String.valueOf(ex.getMessage()));
+            return;
+        }
+
+        if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+            IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Internal error: classified image was modified.");
+            return;
+        }
+
+        runDetailedAnalysis(image, classified, originalPixels, result, null);
+    }
+
+    /**
+     * Runs the unchanged detailed single-lumen diagnostic pipeline for one
+     * explicitly supplied lumen component.
+     */
+    void runForSelectedComponent(
+            final ImagePlus sourceImage,
+            final LumenComponentDescriptor selectedComponent) {
+        logDetailedStartupBanner();
+        IJ.log("Detailed component-selection mode:");
+        IJ.log("EXPLICIT_COMPONENT_ID");
+
+        if (sourceImage == null) {
+            IJ.log("Explicit component inspection failed: sourceImage is null");
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Explicit component inspection failed:\nsourceImage is null");
+            return;
+        }
+        if (selectedComponent == null) {
+            IJ.log("Explicit component inspection failed: selectedComponent is null");
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Explicit component inspection failed:\nselectedComponent is null");
+            return;
+        }
+
+        final ImageProcessor processor = sourceImage.getProcessor();
+        if (processor == null || !(processor instanceof ByteProcessor)) {
+            IJ.log("Explicit component inspection failed: processor is not 8-bit");
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Explicit component inspection failed:\n"
+                            + "The image must be an 8-bit classified ByteProcessor.");
+            return;
+        }
+
+        final ByteProcessor classified = (ByteProcessor) processor;
+        final String validationError = validateSelectedComponent(classified, selectedComponent);
+        if (validationError != null) {
+            IJ.log("Explicit component inspection failed: " + validationError);
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Explicit component inspection failed:\n" + validationError);
+            return;
+        }
+
+        final Rectangle bounds = selectedComponent.getBounds();
+        IJ.log("Inspected component:");
+        IJ.log("componentId,area,minX,minY,maxX,maxY,touchesBorder,imageWidth,imageHeight");
+        IJ.log(String.format(Locale.US,
+                "%d,%d,%d,%d,%d,%d,%s,%d,%d",
+                Integer.valueOf(selectedComponent.getComponentId()),
+                Integer.valueOf(selectedComponent.getArea()),
+                Integer.valueOf(bounds.x),
+                Integer.valueOf(bounds.y),
+                Integer.valueOf(bounds.x + bounds.width - 1),
+                Integer.valueOf(bounds.y + bounds.height - 1),
+                Boolean.toString(selectedComponent.isTouchesImageBorder()),
+                Integer.valueOf(selectedComponent.getImageWidth()),
+                Integer.valueOf(selectedComponent.getImageHeight())));
+        IJ.log("IMPORTANT:");
+        IJ.log("The component ID belongs to the currently inspected classified image.");
+        IJ.log("Cropping, resizing, rotating, editing or reclassifying an image may change");
+        IJ.log("component IDs.");
+        IJ.log("No component was renumbered.");
+        IJ.log("The source image was not modified.");
+
+        final byte[] originalPixels = copyBytes((byte[]) classified.getPixels());
+        logResultPixelHistogram(classified);
+
+        final InitialEllipseAnalysisResult result;
+        try {
+            result = new InitialEllipseAnalyzer().analyzeSelectedComponent(
+                    classified, selectedComponent.getPixels());
+        } catch (IllegalArgumentException ex) {
+            IJ.log("Initial ellipse analysis failed: " + ex.getMessage());
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Initial ellipse analysis failed:\n" + ex.getMessage());
+            return;
+        } catch (RuntimeException ex) {
+            IJ.log("Initial ellipse analysis failed: " + ex.getMessage());
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Initial ellipse analysis failed:\n" + String.valueOf(ex.getMessage()));
+            return;
+        }
+
+        if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+            IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Internal error: classified image was modified.");
+            return;
+        }
+
+        runDetailedAnalysis(
+                sourceImage,
+                classified,
+                originalPixels,
+                result,
+                Integer.valueOf(selectedComponent.getComponentId()));
+    }
+
+    private static String validateSelectedComponent(
+            final ByteProcessor classified,
+            final LumenComponentDescriptor selectedComponent) {
+        final int width = classified.getWidth();
+        final int height = classified.getHeight();
+        if (width != selectedComponent.getImageWidth()
+                || height != selectedComponent.getImageHeight()) {
+            return "Image dimensions do not match the component descriptor: image="
+                    + width + "x" + height + ", descriptor="
+                    + selectedComponent.getImageWidth() + "x"
+                    + selectedComponent.getImageHeight();
+        }
+        final byte[] pixels = (byte[]) classified.getPixels();
+        if (pixels == null || pixels.length != width * height) {
+            return "classified processor pixels are invalid";
+        }
+        final List<Point> componentPixels = selectedComponent.getPixels();
+        if (selectedComponent.getArea() != componentPixels.size()) {
+            return "descriptor area does not equal pixel count";
+        }
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        for (int i = 0; i < componentPixels.size(); i++) {
+            final Point p = componentPixels.get(i);
+            if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) {
+                return "descriptor pixel out of bounds: (" + p.x + "," + p.y + ")";
+            }
+            final int value = pixels[p.y * width + p.x] & 0xff;
+            if (value != ClassifierLabels.LUMEN_RESULT_VALUE) {
+                return "descriptor pixel is not raw Lumen value 2 at ("
+                        + p.x + "," + p.y + "), was " + value;
+            }
+            if (p.x < minX) {
+                minX = p.x;
+            }
+            if (p.y < minY) {
+                minY = p.y;
+            }
+            if (p.x > maxX) {
+                maxX = p.x;
+            }
+            if (p.y > maxY) {
+                maxY = p.y;
+            }
+        }
+        final Rectangle bounds = selectedComponent.getBounds();
+        if (bounds.x != minX
+                || bounds.y != minY
+                || bounds.width != (maxX - minX + 1)
+                || bounds.height != (maxY - minY + 1)) {
+            return "descriptor bounds are not exact for the supplied pixels";
+        }
+        return null;
+    }
+
+    private void runDetailedAnalysis(
+            final ImagePlus image,
+            final ByteProcessor classified,
+            final byte[] originalPixels,
+            final InitialEllipseAnalysisResult result,
+            final Integer explicitComponentId) {
+        final String titleTag = displayTitleTag(explicitComponentId, image.getTitle());
+
+        logAnalysis(image.getTitle(), result);
+
+        final OrderedBoundaryLoop outerLoop;
+        final OrderedBoundaryResidualProfile residualProfile;
+        try {
+            outerLoop = new OrderedBoundaryExtractor()
+                    .selectOuterLoop(result.getSelectedLumenPixels());
+            residualProfile = OrderedBoundaryResidualProfile.create(
+                    outerLoop,
+                    result.getEllipseFitResult().getFittedEllipse());
+        } catch (AmbiguousBoundaryVertexException ex) {
+            handleAmbiguousBoundaryVertex(image, classified, result, ex);
+            return;
+        } catch (IllegalArgumentException ex) {
+            IJ.log("Ordered boundary analysis failed: " + ex.getMessage());
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Ordered boundary analysis failed:\n" + ex.getMessage());
+            return;
+        } catch (RuntimeException ex) {
+            IJ.log("Ordered boundary analysis failed: " + ex.getMessage());
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Ordered boundary analysis failed:\n" + String.valueOf(ex.getMessage()));
+            return;
+        }
+
+        if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+            IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Internal error: classified image was modified.");
+            return;
+        }
+
+        logOrderedBoundary(residualProfile);
+
+        final InwardOutlierDetectionResult outlierDetection;
+        try {
+            outlierDetection = new InwardOutlierIntervalDetector().detect(residualProfile);
+        } catch (IllegalArgumentException ex) {
+            IJ.log("Inward-outlier interval detection failed: " + ex.getMessage());
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Inward-outlier interval detection failed:\n" + ex.getMessage());
+            return;
+        } catch (RuntimeException ex) {
+            IJ.log("Inward-outlier interval detection failed: " + ex.getMessage());
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Inward-outlier interval detection failed:\n"
+                            + String.valueOf(ex.getMessage()));
+            return;
+        }
+
+        if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+            IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+            IJ.error(
+                    "Robust Ellipse Reconstruction Prototype",
+                    "Internal error: classified image was modified.");
+            return;
+        }
+
+        logInwardOutlierDetection(outlierDetection);
+        showVisualization(titleTag, classified, result, residualProfile, outlierDetection);
+        showResidualProfilePlot(titleTag, residualProfile, outlierDetection);
+
+        SingleIntervalEllipseRefitResult refitResult = null;
+        if (outlierDetection.isIntervalSelected()) {
+            try {
+                refitResult = new SingleIntervalEllipseRefitter().refit(outlierDetection);
+            } catch (IllegalArgumentException ex) {
+                IJ.log("Single-interval ellipse refit failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Single-interval ellipse refit failed:\n" + ex.getMessage());
+                return;
+            } catch (RuntimeException ex) {
+                IJ.log("Single-interval ellipse refit failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Single-interval ellipse refit failed:\n"
+                                + String.valueOf(ex.getMessage()));
+                return;
+            }
+
+            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Internal error: classified image was modified.");
+                return;
+            }
+
+            logSingleIntervalRefit(refitResult);
+            showSingleIntervalRefitVisualization(
+                    titleTag, result, residualProfile, refitResult);
+            showBaselineVsRefitResidualPlot(
+                    titleTag, residualProfile, refitResult);
+
+            final RefittedEllipseFillPreviewResult fillPreview;
+            try {
+                fillPreview = new RefittedEllipseFillPreviewAnalyzer()
+                        .analyze(classified, result, refitResult);
+            } catch (IllegalArgumentException ex) {
+                IJ.log("Refitted ellipse fill preview failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Refitted ellipse fill preview failed:\n" + ex.getMessage());
+                return;
+            } catch (RuntimeException ex) {
+                IJ.log("Refitted ellipse fill preview failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Refitted ellipse fill preview failed:\n"
+                                + String.valueOf(ex.getMessage()));
+                return;
+            }
+
+            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Internal error: classified image was modified.");
+                return;
+            }
+
+            logFillPreview(fillPreview);
+            showFillPreviewVisualization(
+                    titleTag, residualProfile, outlierDetection, fillPreview);
+            showBaselineVsRefitFillDifference(
+                    titleTag, residualProfile, outlierDetection, fillPreview);
+
+            final ProposedFillComponentAnalysisResult componentAnalysis;
+            try {
+                componentAnalysis = new ProposedFillComponentAnalyzer()
+                        .analyze(classified, fillPreview, outlierDetection);
+            } catch (IllegalArgumentException ex) {
+                IJ.log("Proposed-fill component analysis failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Proposed-fill component analysis failed:\n" + ex.getMessage());
+                return;
+            } catch (RuntimeException ex) {
+                IJ.log("Proposed-fill component analysis failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Proposed-fill component analysis failed:\n"
+                                + String.valueOf(ex.getMessage()));
+                return;
+            }
+
+            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Internal error: classified image was modified.");
+                return;
+            }
+
+            logProposedFillComponents(componentAnalysis);
+            showProposedFillComponentsVisualization(
+                    titleTag, residualProfile, outlierDetection, fillPreview,
+                    componentAnalysis);
+            showWholeVsAssociatedFillComparison(
+                    titleTag, residualProfile, outlierDetection, fillPreview,
+                    componentAnalysis);
+
+            final ArtifactEvidenceAssessment evidenceAssessment;
+            try {
+                evidenceAssessment = new ArtifactEvidenceAssessor().assess(
+                        outlierDetection, refitResult, componentAnalysis);
+            } catch (IllegalArgumentException ex) {
+                IJ.log("Artifact evidence assessment failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Artifact evidence assessment failed:\n" + ex.getMessage());
+                return;
+            } catch (RuntimeException ex) {
+                IJ.log("Artifact evidence assessment failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Artifact evidence assessment failed:\n"
+                                + String.valueOf(ex.getMessage()));
+                return;
+            }
+
+            logArtifactEvidenceAssessment(evidenceAssessment);
+            showArtifactEvidenceVisualization(titleTag, evidenceAssessment);
+
+            final DiagnosticReconstructionCandidate reconstructionCandidate;
+            try {
+                reconstructionCandidate = new DiagnosticReconstructionBuilder().evaluate(
+                        classified, evidenceAssessment, componentAnalysis);
+            } catch (IllegalArgumentException ex) {
+                IJ.log("Diagnostic reconstruction evaluation failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Diagnostic reconstruction evaluation failed:\n" + ex.getMessage());
+                return;
+            } catch (RuntimeException ex) {
+                IJ.log("Diagnostic reconstruction evaluation failed: " + ex.getMessage());
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Diagnostic reconstruction evaluation failed:\n"
+                                + String.valueOf(ex.getMessage()));
+                return;
+            }
+
+            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+                IJ.error(
+                        "Robust Ellipse Reconstruction Prototype",
+                        "Internal error: classified image was modified.");
+                return;
+            }
+
+            logDiagnosticReconstructionCandidate(reconstructionCandidate);
+
+            if (reconstructionCandidate.isReadyForDiagnosticCopy()) {
+                final DiagnosticReconstructionBuilder builder =
+                        new DiagnosticReconstructionBuilder();
+                final ByteProcessor diagnosticCopy = builder.createDiagnosticCopy(
+                        classified, reconstructionCandidate);
+                final ByteProcessor changeMask = builder.createChangeMask(
+                        reconstructionCandidate);
+
+                if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
+                    IJ.log("ERROR: classified image pixels were modified unexpectedly.");
+                    IJ.error(
+                            "Robust Ellipse Reconstruction Prototype",
+                            "Internal error: classified image was modified.");
+                    return;
+                }
+
+                final String copyTitle = "Diagnostic Reconstructed Copy - " + titleTag;
+                final String maskTitle =
+                        "Diagnostic Reconstruction Change Mask - " + titleTag;
+                new ImagePlus(copyTitle, diagnosticCopy).show();
+                new ImagePlus(maskTitle, changeMask).show();
+                logDiagnosticReconstructedCopy(image.getTitle(), copyTitle,
+                        reconstructionCandidate);
+                showDiagnosticReconstructionReview(
+                        titleTag,
+                        classified,
+                        diagnosticCopy,
+                        reconstructionCandidate,
+                        residualProfile,
+                        outlierDetection,
+                        refitResult);
+            } else {
+                IJ.log("DIAGNOSTIC RECONSTRUCTED COPY NOT CREATED");
+                IJ.log("decision=" + reconstructionCandidate.getDecision().name());
+                IJ.log("reason=" + reconstructionCandidate.getDecisionReason());
+            }
+
+            showSummaryDialog(
+                    result, residualProfile, outlierDetection, refitResult, fillPreview,
+                    componentAnalysis, evidenceAssessment, reconstructionCandidate);
+            return;
+        }
+
+        showSummaryDialog(
+                result, residualProfile, outlierDetection, null, null, null, null, null);
+    }
+
+    private static String displayTitleTag(
+            final Integer explicitComponentId,
+            final String sourceTitle) {
+        if (explicitComponentId == null) {
+            return sourceTitle;
+        }
+        return "Component " + explicitComponentId.intValue() + " - " + sourceTitle;
+    }
+
+    private static void logDetailedStartupBanner() {
         IJ.log("Robust Ellipse Reconstruction Prototype started.");
         IJ.log("Mode: DIAGNOSTIC_RECONSTRUCTED_COPY");
         IJ.log("Detailed single-lumen mode: PER_LUMEN_WINDOWS_ENABLED");
@@ -109,322 +609,6 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         IJ.log("Pixel value " + ClassifierLabels.BACKGROUND_RESULT_VALUE
                 + " = Class " + ClassifierLabels.BACKGROUND + " = "
                 + ClassifierLabels.nameOf(ClassifierLabels.BACKGROUND));
-
-        final ImagePlus image = WindowManager.getCurrentImage();
-        if (image == null) {
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "An 8-bit classified image must be opened and active.");
-            return;
-        }
-
-        final ImageProcessor processor = image.getProcessor();
-        if (processor == null || !(processor instanceof ByteProcessor)) {
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "The active image must be an 8-bit classified image.\n"
-                            + "RGB, 16-bit and 32-bit images are not supported.");
-            return;
-        }
-
-        final ByteProcessor classified = (ByteProcessor) processor;
-        final byte[] sourcePixels = (byte[]) classified.getPixels();
-        final byte[] originalPixels = copyBytes(sourcePixels);
-
-        logResultPixelHistogram(classified);
-
-        final InitialEllipseAnalysisResult result;
-        try {
-            result = new InitialEllipseAnalyzer().analyze(classified);
-        } catch (IllegalArgumentException ex) {
-            IJ.log("Initial ellipse analysis failed: " + ex.getMessage());
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "Initial ellipse analysis failed:\n" + ex.getMessage());
-            return;
-        } catch (RuntimeException ex) {
-            IJ.log("Initial ellipse analysis failed: " + ex.getMessage());
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "Initial ellipse analysis failed:\n" + String.valueOf(ex.getMessage()));
-            return;
-        }
-
-        // Verify the classified image was not modified.
-        final byte[] afterPixels = (byte[]) classified.getPixels();
-        if (!sameBytes(originalPixels, afterPixels)) {
-            IJ.log("ERROR: classified image pixels were modified unexpectedly.");
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "Internal error: classified image was modified.");
-            return;
-        }
-
-        logAnalysis(image.getTitle(), result);
-
-        final OrderedBoundaryLoop outerLoop;
-        final OrderedBoundaryResidualProfile residualProfile;
-        try {
-            outerLoop = new OrderedBoundaryExtractor()
-                    .selectOuterLoop(result.getSelectedLumenPixels());
-            residualProfile = OrderedBoundaryResidualProfile.create(
-                    outerLoop,
-                    result.getEllipseFitResult().getFittedEllipse());
-        } catch (AmbiguousBoundaryVertexException ex) {
-            handleAmbiguousBoundaryVertex(image, classified, result, ex);
-            return;
-        } catch (IllegalArgumentException ex) {
-            IJ.log("Ordered boundary analysis failed: " + ex.getMessage());
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "Ordered boundary analysis failed:\n" + ex.getMessage());
-            return;
-        } catch (RuntimeException ex) {
-            IJ.log("Ordered boundary analysis failed: " + ex.getMessage());
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "Ordered boundary analysis failed:\n" + String.valueOf(ex.getMessage()));
-            return;
-        }
-
-        // Re-verify source pixels after ordered-boundary diagnostics.
-        if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
-            IJ.log("ERROR: classified image pixels were modified unexpectedly.");
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "Internal error: classified image was modified.");
-            return;
-        }
-
-        logOrderedBoundary(residualProfile);
-
-        final InwardOutlierDetectionResult outlierDetection;
-        try {
-            outlierDetection = new InwardOutlierIntervalDetector().detect(residualProfile);
-        } catch (IllegalArgumentException ex) {
-            IJ.log("Inward-outlier interval detection failed: " + ex.getMessage());
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "Inward-outlier interval detection failed:\n" + ex.getMessage());
-            return;
-        } catch (RuntimeException ex) {
-            IJ.log("Inward-outlier interval detection failed: " + ex.getMessage());
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "Inward-outlier interval detection failed:\n"
-                            + String.valueOf(ex.getMessage()));
-            return;
-        }
-
-        if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
-            IJ.log("ERROR: classified image pixels were modified unexpectedly.");
-            IJ.error(
-                    "Robust Ellipse Reconstruction Prototype",
-                    "Internal error: classified image was modified.");
-            return;
-        }
-
-        logInwardOutlierDetection(outlierDetection);
-        showVisualization(image.getTitle(), classified, result, residualProfile, outlierDetection);
-        showResidualProfilePlot(image.getTitle(), residualProfile, outlierDetection);
-
-        SingleIntervalEllipseRefitResult refitResult = null;
-        if (outlierDetection.isIntervalSelected()) {
-            try {
-                refitResult = new SingleIntervalEllipseRefitter().refit(outlierDetection);
-            } catch (IllegalArgumentException ex) {
-                IJ.log("Single-interval ellipse refit failed: " + ex.getMessage());
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Single-interval ellipse refit failed:\n" + ex.getMessage());
-                return;
-            } catch (RuntimeException ex) {
-                IJ.log("Single-interval ellipse refit failed: " + ex.getMessage());
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Single-interval ellipse refit failed:\n"
-                                + String.valueOf(ex.getMessage()));
-                return;
-            }
-
-            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
-                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Internal error: classified image was modified.");
-                return;
-            }
-
-            logSingleIntervalRefit(refitResult);
-            showSingleIntervalRefitVisualization(
-                    image.getTitle(), result, residualProfile, refitResult);
-            showBaselineVsRefitResidualPlot(
-                    image.getTitle(), residualProfile, refitResult);
-
-            final RefittedEllipseFillPreviewResult fillPreview;
-            try {
-                fillPreview = new RefittedEllipseFillPreviewAnalyzer()
-                        .analyze(classified, result, refitResult);
-            } catch (IllegalArgumentException ex) {
-                IJ.log("Refitted ellipse fill preview failed: " + ex.getMessage());
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Refitted ellipse fill preview failed:\n" + ex.getMessage());
-                return;
-            } catch (RuntimeException ex) {
-                IJ.log("Refitted ellipse fill preview failed: " + ex.getMessage());
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Refitted ellipse fill preview failed:\n"
-                                + String.valueOf(ex.getMessage()));
-                return;
-            }
-
-            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
-                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Internal error: classified image was modified.");
-                return;
-            }
-
-            logFillPreview(fillPreview);
-            showFillPreviewVisualization(
-                    image.getTitle(), residualProfile, outlierDetection, fillPreview);
-            showBaselineVsRefitFillDifference(
-                    image.getTitle(), residualProfile, outlierDetection, fillPreview);
-
-            final ProposedFillComponentAnalysisResult componentAnalysis;
-            try {
-                componentAnalysis = new ProposedFillComponentAnalyzer()
-                        .analyze(classified, fillPreview, outlierDetection);
-            } catch (IllegalArgumentException ex) {
-                IJ.log("Proposed-fill component analysis failed: " + ex.getMessage());
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Proposed-fill component analysis failed:\n" + ex.getMessage());
-                return;
-            } catch (RuntimeException ex) {
-                IJ.log("Proposed-fill component analysis failed: " + ex.getMessage());
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Proposed-fill component analysis failed:\n"
-                                + String.valueOf(ex.getMessage()));
-                return;
-            }
-
-            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
-                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Internal error: classified image was modified.");
-                return;
-            }
-
-            logProposedFillComponents(componentAnalysis);
-            showProposedFillComponentsVisualization(
-                    image.getTitle(), residualProfile, outlierDetection, fillPreview,
-                    componentAnalysis);
-            showWholeVsAssociatedFillComparison(
-                    image.getTitle(), residualProfile, outlierDetection, fillPreview,
-                    componentAnalysis);
-
-            final ArtifactEvidenceAssessment evidenceAssessment;
-            try {
-                evidenceAssessment = new ArtifactEvidenceAssessor().assess(
-                        outlierDetection, refitResult, componentAnalysis);
-            } catch (IllegalArgumentException ex) {
-                IJ.log("Artifact evidence assessment failed: " + ex.getMessage());
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Artifact evidence assessment failed:\n" + ex.getMessage());
-                return;
-            } catch (RuntimeException ex) {
-                IJ.log("Artifact evidence assessment failed: " + ex.getMessage());
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Artifact evidence assessment failed:\n"
-                                + String.valueOf(ex.getMessage()));
-                return;
-            }
-
-            logArtifactEvidenceAssessment(evidenceAssessment);
-            showArtifactEvidenceVisualization(image.getTitle(), evidenceAssessment);
-
-            final DiagnosticReconstructionCandidate reconstructionCandidate;
-            try {
-                reconstructionCandidate = new DiagnosticReconstructionBuilder().evaluate(
-                        classified, evidenceAssessment, componentAnalysis);
-            } catch (IllegalArgumentException ex) {
-                IJ.log("Diagnostic reconstruction evaluation failed: " + ex.getMessage());
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Diagnostic reconstruction evaluation failed:\n" + ex.getMessage());
-                return;
-            } catch (RuntimeException ex) {
-                IJ.log("Diagnostic reconstruction evaluation failed: " + ex.getMessage());
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Diagnostic reconstruction evaluation failed:\n"
-                                + String.valueOf(ex.getMessage()));
-                return;
-            }
-
-            if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
-                IJ.log("ERROR: classified image pixels were modified unexpectedly.");
-                IJ.error(
-                        "Robust Ellipse Reconstruction Prototype",
-                        "Internal error: classified image was modified.");
-                return;
-            }
-
-            logDiagnosticReconstructionCandidate(reconstructionCandidate);
-
-            if (reconstructionCandidate.isReadyForDiagnosticCopy()) {
-                final DiagnosticReconstructionBuilder builder =
-                        new DiagnosticReconstructionBuilder();
-                final ByteProcessor diagnosticCopy = builder.createDiagnosticCopy(
-                        classified, reconstructionCandidate);
-                final ByteProcessor changeMask = builder.createChangeMask(
-                        reconstructionCandidate);
-
-                if (!sameBytes(originalPixels, (byte[]) classified.getPixels())) {
-                    IJ.log("ERROR: classified image pixels were modified unexpectedly.");
-                    IJ.error(
-                            "Robust Ellipse Reconstruction Prototype",
-                            "Internal error: classified image was modified.");
-                    return;
-                }
-
-                final String copyTitle = "Diagnostic Reconstructed Copy - " + image.getTitle();
-                final String maskTitle =
-                        "Diagnostic Reconstruction Change Mask - " + image.getTitle();
-                new ImagePlus(copyTitle, diagnosticCopy).show();
-                new ImagePlus(maskTitle, changeMask).show();
-                logDiagnosticReconstructedCopy(image.getTitle(), copyTitle,
-                        reconstructionCandidate);
-                showDiagnosticReconstructionReview(
-                        image.getTitle(),
-                        classified,
-                        diagnosticCopy,
-                        reconstructionCandidate,
-                        residualProfile,
-                        outlierDetection,
-                        refitResult);
-            } else {
-                IJ.log("DIAGNOSTIC RECONSTRUCTED COPY NOT CREATED");
-                IJ.log("decision=" + reconstructionCandidate.getDecision().name());
-                IJ.log("reason=" + reconstructionCandidate.getDecisionReason());
-            }
-
-            showSummaryDialog(
-                    result, residualProfile, outlierDetection, refitResult, fillPreview,
-                    componentAnalysis, evidenceAssessment, reconstructionCandidate);
-            return;
-        }
-
-        showSummaryDialog(
-                result, residualProfile, outlierDetection, null, null, null, null, null);
     }
 
     private static void logResultPixelHistogram(final ByteProcessor classified) {
