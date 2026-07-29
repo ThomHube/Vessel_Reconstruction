@@ -57,6 +57,26 @@ public final class EllipseReconstructionPlugin implements PlugIn {
         IJ.log("Source image modification: DISABLED");
         IJ.log("Automatic file saving: DISABLED");
         IJ.log("Production reconstruction: NOT APPLIED");
+        IJ.log("Artifact evidence threshold calibration:");
+        IJ.log("minimumDepthSigmaThreshold,meanDepthSigmaThreshold,coreFractionThreshold,"
+                + "normalizedIntegratedExcessThreshold,retainedRmsImprovementThreshold,"
+                + "calibrationStatus");
+        IJ.log(String.format(Locale.US,
+                "%.6f,%.6f,%.6f,%.6f,%.6f,%s",
+                Double.valueOf(ArtifactEvidenceAssessor.MINIMUM_DEPTH_SIGMA_THRESHOLD),
+                Double.valueOf(ArtifactEvidenceAssessor.MEAN_DEPTH_SIGMA_THRESHOLD),
+                Double.valueOf(ArtifactEvidenceAssessor.CORE_FRACTION_THRESHOLD),
+                Double.valueOf(ArtifactEvidenceAssessor.NORMALIZED_INTEGRATED_EXCESS_THRESHOLD),
+                Double.valueOf(ArtifactEvidenceAssessor.RETAINED_RMS_IMPROVEMENT_THRESHOLD),
+                "PROVISIONAL_LABELLED_SET_CALIBRATION"));
+        IJ.log("IMPORTANT:");
+        IJ.log("The minimum-depth threshold was calibrated from 5.0 to 4.0 after a broad,");
+        IJ.log("human-confirmed artifact passed every other residual and structural criterion.");
+        IJ.log("All five residual criteria remain mandatory.");
+        IJ.log("All structural criteria remain mandatory.");
+        IJ.log("This is not a final biological threshold.");
+        IJ.log("The source image was not modified.");
+        IJ.log("Production reconstruction was not applied.");
         IJ.log("Diagonal boundary-contact policy:");
         IJ.log("Exact checkerboard contact = RIGHT_TURN_SAME_FACE");
         IJ.log("All other ambiguous vertices = REJECTED");
@@ -2142,19 +2162,29 @@ public final class EllipseReconstructionPlugin implements PlugIn {
                     .append("\n\n");
             message.append("Minimum depth sigma: ")
                     .append(fmt(evidenceAssessment.getMinimumDepthSigma()))
-                    .append(" (required >= 5.0)\n");
+                    .append(" (required >= ")
+                    .append(fmt(evidenceAssessment.getMinimumDepthThreshold()))
+                    .append(")\n");
             message.append("Mean depth sigma: ")
                     .append(fmt(evidenceAssessment.getMeanDepthSigma()))
-                    .append(" (required >= 3.0)\n");
+                    .append(" (required >= ")
+                    .append(fmt(evidenceAssessment.getMeanDepthThreshold()))
+                    .append(")\n");
             message.append("Core fraction: ")
                     .append(fmt(evidenceAssessment.getCoreFraction()))
-                    .append(" (required >= 0.15)\n");
+                    .append(" (required >= ")
+                    .append(fmt(evidenceAssessment.getCoreFractionThreshold()))
+                    .append(")\n");
             message.append("Normalized integrated inward excess: ")
                     .append(fmt(evidenceAssessment.getNormalizedIntegratedInwardExcess()))
-                    .append(" (required >= 1.50)\n");
+                    .append(" (required >= ")
+                    .append(fmt(evidenceAssessment.getNormalizedIntegratedExcessThreshold()))
+                    .append(")\n");
             message.append("Retained-wall RMS improvement: ")
                     .append(fmt(evidenceAssessment.getRetainedRmsImprovementFraction()))
-                    .append(" (required >= 0.20)\n\n");
+                    .append(" (required >= ")
+                    .append(fmt(evidenceAssessment.getRetainedRmsImprovementThreshold()))
+                    .append(")\n\n");
             message.append("Interval-associated components: ")
                     .append(evidenceAssessment.getIntervalAssociatedComponentCount())
                     .append("\n");

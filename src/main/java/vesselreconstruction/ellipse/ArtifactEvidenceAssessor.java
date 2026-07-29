@@ -12,7 +12,7 @@ import java.util.List;
  */
 public final class ArtifactEvidenceAssessor {
 
-    static final double MINIMUM_DEPTH_SIGMA_THRESHOLD = 5.0;
+    static final double MINIMUM_DEPTH_SIGMA_THRESHOLD = 4.0;
     static final double MEAN_DEPTH_SIGMA_THRESHOLD = 3.0;
     static final double CORE_FRACTION_THRESHOLD = 0.15;
     static final double NORMALIZED_INTEGRATED_EXCESS_THRESHOLD = 1.50;

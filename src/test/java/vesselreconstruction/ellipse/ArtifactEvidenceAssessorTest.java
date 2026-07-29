@@ -245,7 +245,7 @@ class ArtifactEvidenceAssessorTest {
     @Test
     void minimumDepthSigmaFailureAloneListedInReason() {
         final ArtifactEvidenceAssessment result =
-                assess(4.0, 5.0, 0.30, 2.0, 0.35, 40, 15, 1, 10, 0, 0, 0.5, 0.15);
+                assess(Math.nextDown(4.0), 5.0, 0.30, 2.0, 0.35, 40, 15, 1, 10, 0, 0, 0.5, 0.15);
         assertEquals("Insufficient residual evidence: MINIMUM_DEPTH_SIGMA",
                 result.getDecisionReason());
         assertFalse(result.isMinimumDepthPassed());
@@ -292,34 +292,40 @@ class ArtifactEvidenceAssessorTest {
     // Exact regression examples
     // ------------------------------------------------------------------
 
-    /** Positive example 2: all residual and structural criteria pass strongly. */
+    /** Positive thin-artifact example 2: all residual and structural criteria pass. */
     @Test
     void positiveExample2ProducesStrongArtifactEvidence() {
         final ArtifactEvidenceAssessment result = assess(
-                8.2, 5.1, 0.42, 2.35, 0.38,
-                40, 17, 1, 12, 0, 0, 0.55, 0.12);
+                7.995475, 4.885744, 0.715686, 3.385744, 0.390720,
+                102, 73, 1, 63, 0, 0, 0.654605, 0.133202);
         assertEquals(ArtifactEvidenceAssessment.Decision.STRONG_ARTIFACT_EVIDENCE,
                 result.getDecision());
         assertTrue(result.isStrongArtifactEvidence());
+        assertTrue(result.isMinimumDepthPassed());
+        assertTrue(result.isMeanDepthPassed());
+        assertTrue(result.isCoreFractionPassed());
+        assertTrue(result.isIntegratedExcessPassed());
+        assertTrue(result.isRetainedRmsImprovementPassed());
+        assertTrue(result.isStructuralAssociationPassed());
         assertEquals("All residual and structural artifact-evidence criteria passed",
                 result.getDecisionReason());
-        assertEquals(8.2, result.getMinimumDepthSigma(), 0.0);
-        assertEquals(5.1, result.getMeanDepthSigma(), 0.0);
-        assertEquals(0.42, result.getCoreFraction(), 0.0);
-        assertEquals(2.35, result.getNormalizedIntegratedInwardExcess(), 0.0);
-        assertEquals(0.38, result.getRetainedRmsImprovementFraction(), 0.0);
+        assertEquals(7.995475, result.getMinimumDepthSigma(), 0.0);
+        assertEquals(4.885744, result.getMeanDepthSigma(), 0.0);
+        assertEquals(0.715686, result.getCoreFraction(), 0.0);
+        assertEquals(3.385744, result.getNormalizedIntegratedInwardExcess(), 0.0);
+        assertEquals(0.390720, result.getRetainedRmsImprovementFraction(), 0.0);
         assertEquals(1, result.getIntervalAssociatedComponentCount());
         assertTrue(result.isExactlyOneIntervalAssociatedComponent());
         assertTrue(result.isAllExteriorSeedsMatched());
         assertTrue(result.isNoOtherLumenOverlap());
     }
 
-    /** Clean example 7: all five residual criteria fail; structure otherwise passes. */
+    /** Clean negative-control example 7: all five residual criteria fail. */
     @Test
     void cleanExample7ProducesInsufficientResidualEvidenceWithAllFiveCriteriaFailing() {
         final ArtifactEvidenceAssessment result = assess(
-                1.0, 0.5, 0.05, 0.30, 0.05,
-                40, 3, 1, 5, 0, 0, 0.10, 0.02);
+                3.131289, 2.383248, 0.037736, 0.883248, 0.107297,
+                53, 2, 1, 33, 0, 0, 0.462940, 0.035324);
         assertEquals(ArtifactEvidenceAssessment.Decision.INSUFFICIENT_RESIDUAL_EVIDENCE,
                 result.getDecision());
         assertEquals(
@@ -335,6 +341,64 @@ class ArtifactEvidenceAssessorTest {
         assertTrue(result.isStructuralAssociationPassed());
     }
 
+    /** Broad positive example 8: passes after provisional min-depth calibration to 4.0. */
+    @Test
+    void broadPositiveExample8ProducesStrongArtifactEvidence() {
+        final ArtifactEvidenceAssessment result = assess(
+                4.714939, 3.367811, 0.637931, 1.867811, 0.228038,
+                58, 37, 1, 44, 0, 0, 0.644482, 0.142571);
+        assertEquals(ArtifactEvidenceAssessment.Decision.STRONG_ARTIFACT_EVIDENCE,
+                result.getDecision());
+        assertTrue(result.isMinimumDepthPassed());
+        assertTrue(result.isMeanDepthPassed());
+        assertTrue(result.isCoreFractionPassed());
+        assertTrue(result.isIntegratedExcessPassed());
+        assertTrue(result.isRetainedRmsImprovementPassed());
+        assertTrue(result.isStructuralAssociationPassed());
+        assertTrue(result.isStrongArtifactEvidence());
+        assertEquals(4.714939, result.getMinimumDepthSigma(), 0.0);
+        assertEquals(3.367811, result.getMeanDepthSigma(), 0.0);
+        assertEquals(0.637931, result.getCoreFraction(), 0.0);
+        assertEquals(1.867811, result.getNormalizedIntegratedInwardExcess(), 0.0);
+        assertEquals(0.228038, result.getRetainedRmsImprovementFraction(), 0.0);
+    }
+
+    /**
+     * Safety: lowering minimum-depth to 4.0 must not allow bypassing other residual
+     * criteria.
+     */
+    @Test
+    void minimumDepthAboveCalibratedThresholdStillFailsWhenAnotherResidualFails() {
+        final ArtifactEvidenceAssessment result = assess(
+                4.1, 2.0, 0.30, 2.0, 0.35, 40, 15, 1, 10, 0, 0, 0.5, 0.15);
+        assertEquals(ArtifactEvidenceAssessment.Decision.INSUFFICIENT_RESIDUAL_EVIDENCE,
+                result.getDecision());
+        assertTrue(result.isMinimumDepthPassed());
+        assertFalse(result.isMeanDepthPassed());
+        assertEquals("Insufficient residual evidence: MEAN_DEPTH_SIGMA",
+                result.getDecisionReason());
+        assertFalse(result.isStrongArtifactEvidence());
+    }
+
+    /**
+     * Safety: residual pass does not bypass structural association requirements.
+     */
+    @Test
+    void allResidualCriteriaPassButStructuralFailureStillRejects() {
+        final ArtifactEvidenceAssessment result = assess(
+                4.1, 5.0, 0.30, 2.0, 0.35, 40, 15, 2, 10, 0, 0, 0.5, 0.15);
+        assertEquals(
+                ArtifactEvidenceAssessment.Decision.AMBIGUOUS_INTERVAL_ASSOCIATION,
+                result.getDecision());
+        assertTrue(result.isMinimumDepthPassed());
+        assertTrue(result.isMeanDepthPassed());
+        assertTrue(result.isCoreFractionPassed());
+        assertTrue(result.isIntegratedExcessPassed());
+        assertTrue(result.isRetainedRmsImprovementPassed());
+        assertFalse(result.isStructuralAssociationPassed());
+        assertFalse(result.isStrongArtifactEvidence());
+    }
+
     // ------------------------------------------------------------------
     // Threshold boundaries (>= is inclusive pass)
     // ------------------------------------------------------------------
@@ -344,6 +408,8 @@ class ArtifactEvidenceAssessorTest {
         final ArtifactEvidenceAssessment result = assess(
                 ArtifactEvidenceAssessor.MINIMUM_DEPTH_SIGMA_THRESHOLD,
                 5.0, 0.30, 2.0, 0.35, 40, 15, 1, 10, 0, 0, 0.5, 0.15);
+        assertEquals(4.0, ArtifactEvidenceAssessor.MINIMUM_DEPTH_SIGMA_THRESHOLD, 0.0);
+        assertEquals(4.0, result.getMinimumDepthSigma(), 0.0);
         assertTrue(result.isMinimumDepthPassed());
         assertEquals(ArtifactEvidenceAssessment.Decision.STRONG_ARTIFACT_EVIDENCE,
                 result.getDecision());
@@ -351,7 +417,7 @@ class ArtifactEvidenceAssessorTest {
 
     @Test
     void minimumDepthSigmaJustBelowThresholdFails() {
-        final double justBelow = ArtifactEvidenceAssessor.MINIMUM_DEPTH_SIGMA_THRESHOLD - 0.001;
+        final double justBelow = Math.nextDown(4.0);
         final ArtifactEvidenceAssessment result = assess(
                 justBelow, 5.0, 0.30, 2.0, 0.35, 40, 15, 1, 10, 0, 0, 0.5, 0.15);
         assertFalse(result.isMinimumDepthPassed());
@@ -513,14 +579,19 @@ class ArtifactEvidenceAssessorTest {
     void thresholdsAttachedToAssessmentMatchAssessorConstants() {
         final ArtifactEvidenceAssessment result =
                 assess(8.0, 5.0, 0.30, 2.0, 0.35, 40, 15, 1, 10, 0, 0, 0.5, 0.15);
+        assertEquals(4.0, ArtifactEvidenceAssessor.MINIMUM_DEPTH_SIGMA_THRESHOLD, 0.0);
         assertEquals(ArtifactEvidenceAssessor.MINIMUM_DEPTH_SIGMA_THRESHOLD,
                 result.getMinimumDepthThreshold(), 0.0);
+        assertEquals(3.0, ArtifactEvidenceAssessor.MEAN_DEPTH_SIGMA_THRESHOLD, 0.0);
         assertEquals(ArtifactEvidenceAssessor.MEAN_DEPTH_SIGMA_THRESHOLD,
                 result.getMeanDepthThreshold(), 0.0);
+        assertEquals(0.15, ArtifactEvidenceAssessor.CORE_FRACTION_THRESHOLD, 0.0);
         assertEquals(ArtifactEvidenceAssessor.CORE_FRACTION_THRESHOLD,
                 result.getCoreFractionThreshold(), 0.0);
+        assertEquals(1.50, ArtifactEvidenceAssessor.NORMALIZED_INTEGRATED_EXCESS_THRESHOLD, 0.0);
         assertEquals(ArtifactEvidenceAssessor.NORMALIZED_INTEGRATED_EXCESS_THRESHOLD,
                 result.getNormalizedIntegratedExcessThreshold(), 0.0);
+        assertEquals(0.20, ArtifactEvidenceAssessor.RETAINED_RMS_IMPROVEMENT_THRESHOLD, 0.0);
         assertEquals(ArtifactEvidenceAssessor.RETAINED_RMS_IMPROVEMENT_THRESHOLD,
                 result.getRetainedRmsImprovementThreshold(), 0.0);
     }
@@ -790,7 +861,7 @@ class ArtifactEvidenceAssessorTest {
         private boolean integratedExcessPassed = false;
         private boolean retainedRmsImprovementPassed = false;
         private boolean structuralAssociationPassed = true;
-        private double minimumDepthThreshold = 5.0;
+        private double minimumDepthThreshold = 4.0;
         private double meanDepthThreshold = 3.0;
         private double coreFractionThreshold = 0.15;
         private double normalizedIntegratedExcessThreshold = 1.5;

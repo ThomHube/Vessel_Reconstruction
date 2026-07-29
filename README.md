@@ -124,7 +124,7 @@ association, the prototype evaluates scale-independent residual evidence:
 
 Conservative prototype thresholds:
 
-- minimumDepthSigma >= 5.0
+- minimumDepthSigma >= 4.0
 - meanDepthSigma >= 3.0
 - coreFraction >= 0.15
 - normalizedIntegratedInwardExcess >= 1.50
@@ -136,15 +136,28 @@ component, all exterior seeds matched, and no other Lumen overlap.
 Circularity and associated fill fraction remain secondary diagnostics and do
 not control the evidence decision.
 
-Verified regression outcomes under the current prototype thresholds:
+### Provisional minimum-depth calibration
 
-- positive example 2 → `STRONG_ARTIFACT_EVIDENCE`
-- clean example 7 → `INSUFFICIENT_RESIDUAL_EVIDENCE`
-- clean example 6 stops earlier with `NO_CORE_POINTS`
+The original minimum-depth threshold was 5.0 robust scales. Broad human-confirmed
+positive example 8 reached only 4.714939 robust scales while still passing mean
+depth, core fraction, integrated excess, retained-wall RMS improvement, and all
+structural checks. The minimum-depth threshold was therefore provisionally
+calibrated to 4.0.
 
-The diagnostic evidence result is not production reconstruction approval.
-The thresholds are provisional and may be revised only after testing additional
-positive and negative examples.
+Verified regression outcomes under the calibrated thresholds:
+
+- positive thin-artifact example 2 → `STRONG_ARTIFACT_EVIDENCE` (still well above 4.0)
+- clean negative example 7 → `INSUFFICIENT_RESIDUAL_EVIDENCE` (3.131289, and all other residual criteria also fail)
+- broad positive example 8 → `STRONG_ARTIFACT_EVIDENCE` (4.714939 >= 4.0)
+
+All five residual criteria remain mandatory. All structural requirements remain
+mandatory. No image-specific code was added. Circularity and associated fill
+fraction remain secondary diagnostics.
+
+This calibration is provisional. It permits diagnostic reconstructed copies but
+does not constitute final biological validation or production approval.
+Additional labelled examples are still required before final threshold selection
+or production reconstruction.
 
 ### Diagnostic reconstructed copy
 
@@ -164,6 +177,7 @@ checks pass, the plugin may create a diagnostic reconstructed image copy:
 Verified regression outcomes for the copy gate:
 
 - positive example 2 → `READY_FOR_DIAGNOSTIC_COPY` (primary associated Wood → Lumen)
+- broad positive example 8 → eligible for diagnostic copy once evidence is strong
 - clean example 7 → `INSUFFICIENT_ARTIFACT_EVIDENCE` (no copy, no change mask)
 
 This remains diagnostic reconstruction only. Evidence thresholds are unchanged
