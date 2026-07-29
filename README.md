@@ -36,6 +36,64 @@ The class mapping has not changed. Only the raw result-image encoding is zero-ba
 
 The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
 
+## Plugin modes
+
+### 1. Detailed single-lumen development mode
+
+Menu: **Robust Ellipse Reconstruction Prototype**
+
+- processes the currently selected/largest Lumen
+- opens detailed diagnostic windows
+- used for algorithm development and debugging
+- source image remains unchanged
+
+### 2. All-lumen diagnostic mode
+
+Menu: **Robust Ellipse Reconstruction - All Lumina**
+
+- processes every Class 3 Lumen component independently
+- one result row per component
+- no per-lumen diagnostic windows
+- at most: one ResultsTable, one decision overview, one combined reconstructed copy, one combined change mask
+- `SUMMARY_ONLY` shows those combined outputs
+- `SILENT` creates no windows, tables, or dialogs; only a concise log summary
+- all components are analyzed against the unchanged original classified image
+- accepted non-conflicting Wood→Lumen candidates are combined into one diagnostic duplicate
+- source image remains unchanged
+- no automatic saving
+- directory/stack processing is not implemented
+
+Supported all-lumen scope:
+
+- one connected approximately elliptical Lumen
+- at most one connected inward Wood artifact per Lumen
+- strong residual evidence
+- exactly one associated fill component
+- no other-Lumen overlap
+- Wood-only candidate pixels
+
+Unsupported all-lumen scope:
+
+- multiple artifacts in one vessel
+- split or disconnected lumen reconnection
+- subtractive false-Lumen removal
+- non-elliptical vessel reconstruction
+- automatic directory processing
+- stack processing
+
+Planned later architecture:
+
+Directory Dataset Runner
+→ loads classified TIFF
+→ calls `AllLumenBatchProcessor` in `SILENT` mode
+→ writes one reconstructed TIFF
+→ writes one change-mask TIFF
+→ appends one CSV results file
+→ closes all images
+→ continues with the next file
+
+The future dataset runner will use the same headless processor and will not create hundreds of visible ImageJ windows.
+
 ## Current state
 
 ### Implemented
@@ -223,7 +281,8 @@ Lumen in that independent duplicate. Circularity remains a secondary diagnostic.
 - automatic choice between whole and associated fill
 - source-image modification
 - automatic saving of a reconstructed classified image
-- processing all vessels
+- directory dataset iteration
+- stack processing
 - iterative interval exclusion
 - broader non-elliptical vessel handling
 - repeated interval detection after refitting

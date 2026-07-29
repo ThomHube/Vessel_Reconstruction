@@ -5,7 +5,7 @@
 - **Algorithm:** Robust Ellipse Reconstruction
 - **Project directory:** `/home/thomas/IdeaProjects/minimal-ij1-plugin-ellipse`
 - **Artifact:** `VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar`
-- **Status:** Initial free-ellipse fit, inward-outlier interval detection, single-interval diagnostic refit, source-safe fill preview, proposed-fill component association, conservative artifact-evidence gate, and optional source-safe diagnostic reconstructed copy implemented; component/ellipse acceptance and production reconstruction remain unimplemented
+- **Status:** Detailed single-lumen diagnostic prototype plus headless all-lumen batch processor implemented; directory dataset runner, automatic saving, and production reconstruction remain unimplemented
 - **Independence:** This repository does not contain the legacy contour bridgepoint algorithm
 
 ## Mathematical free-ellipse stage
@@ -70,6 +70,8 @@ Implemented:
 - optional diagnostic reconstructed copy when strong evidence and structural association pass
 - source-safe Wood→Lumen conversion limited to the primary interval-associated component
 - diagnostic change mask and two-panel reconstruction review visualization
+- headless all-lumen batch processor (`AllLumenBatchProcessor`) with `SUMMARY_ONLY` and `SILENT` display policies
+- separate ImageJ entry point: Robust Ellipse Reconstruction - All Lumina
 
 The initial ellipse may be influenced by the artifact because all observed
 boundary points are included.
@@ -221,6 +223,25 @@ This is still not production reconstruction. Evidence thresholds remain
 unchanged and provisional. Broader positive and negative validation is still
 required.
 
+### All-lumen diagnostic batch mode
+
+A separate headless processor analyzes every Class 3 Lumen component against the
+unchanged original classified image:
+
+- extract all raw-value-2 components once (8-connected)
+- filter by provisional minimum area and optional border skip
+- run the verified single-artifact pipeline per eligible component
+- resolve overlapping candidate pixels as `CANDIDATE_CONFLICT`
+- combine only non-conflicting accepted Wood→Lumen candidates into one diagnostic copy
+
+Display policies:
+
+- `SUMMARY_ONLY`: at most one ResultsTable, one decision overview, one combined copy, one combined mask
+- `SILENT`: no windows, tables, or dialogs; concise log only
+
+Detailed single-lumen mode remains available for development and continues to
+open per-lumen diagnostic windows.
+
 Not yet implemented:
 
 - component acceptance thresholds
@@ -229,12 +250,27 @@ Not yet implemented:
 - automatic reconstruction approval
 - source-image modification
 - automatic saving of a reconstructed classified image
-- processing all vessels
+- directory dataset iteration
+- stack processing
 - iterative interval exclusion
 - broader non-elliptical vessel handling
 - repeated interval detection after refitting
 - stopping based on parameter stability
 - production reconstruction
+
+Planned later architecture:
+
+Directory Dataset Runner
+→ loads classified TIFF
+→ calls `AllLumenBatchProcessor` in `SILENT` mode
+→ writes one reconstructed TIFF
+→ writes one change-mask TIFF
+→ appends one CSV results file
+→ closes all images
+→ continues with the next file
+
+The future dataset runner will use the same headless processor and will not
+create hundreds of visible ImageJ windows.
 
 ## Fixed classifier mapping
 

@@ -45,6 +45,9 @@ public final class EllipseReconstructionPlugin implements PlugIn {
     public void run(final String arg) {
         IJ.log("Robust Ellipse Reconstruction Prototype started.");
         IJ.log("Mode: DIAGNOSTIC_RECONSTRUCTED_COPY");
+        IJ.log("Detailed single-lumen mode: PER_LUMEN_WINDOWS_ENABLED");
+        IJ.log("For combined or silent processing use:");
+        IJ.log("Robust Ellipse Reconstruction - All Lumina");
         IJ.log("Input format: TRAINABLE_WEKA_CREATE_RESULT");
         IJ.log("Whole-ellipse fill: DIAGNOSTIC");
         IJ.log("Interval-associated fill: DIAGNOSTIC");

@@ -64,7 +64,54 @@ public final class InitialEllipseAnalyzer {
         }
 
         final Component selected = selectComponent(components);
-        final List<Point> selectedPixels = sortPoints(selected.pixels);
+        return analyzeSelectedPixels(
+                classifiedProcessor,
+                pixels,
+                width,
+                height,
+                sortPoints(selected.pixels),
+                components.size());
+    }
+
+    /**
+     * Analyzes one caller-selected Lumen component without choosing another component
+     * and without mutating the classified input.
+     */
+    public InitialEllipseAnalysisResult analyzeSelectedComponent(
+            final ByteProcessor classifiedProcessor,
+            final List<Point> selectedLumenPixels) {
+        if (classifiedProcessor == null) {
+            throw new IllegalArgumentException("classifiedProcessor must not be null");
+        }
+        if (selectedLumenPixels == null || selectedLumenPixels.isEmpty()) {
+            throw new IllegalArgumentException("selectedLumenPixels must not be null or empty");
+        }
+
+        final int width = classifiedProcessor.getWidth();
+        final int height = classifiedProcessor.getHeight();
+        final byte[] pixels = (byte[]) classifiedProcessor.getPixels();
+        if (pixels == null) {
+            throw new IllegalArgumentException("classifiedProcessor pixels must not be null");
+        }
+
+        final List<Point> selectedPixels = validateSelectedComponentPixels(
+                pixels, width, height, selectedLumenPixels);
+        return analyzeSelectedPixels(
+                classifiedProcessor,
+                pixels,
+                width,
+                height,
+                selectedPixels,
+                1);
+    }
+
+    private InitialEllipseAnalysisResult analyzeSelectedPixels(
+            final ByteProcessor classifiedProcessor,
+            final byte[] pixels,
+            final int width,
+            final int height,
+            final List<Point> selectedPixels,
+            final int lumenComponentCount) {
         final Set<Long> selectedKeys = toKeySet(selectedPixels);
 
         final List<Point2D.Double> supportPoints =
@@ -82,16 +129,40 @@ public final class InitialEllipseAnalyzer {
         final FillAnalysis fill = analyzeFill(
                 pixels, width, height, selectedKeys, fitted);
 
+        int minX = selectedPixels.get(0).x;
+        int minY = selectedPixels.get(0).y;
+        int maxX = minX;
+        int maxY = minY;
+        for (int i = 1; i < selectedPixels.size(); i++) {
+            final Point p = selectedPixels.get(i);
+            if (p.x < minX) {
+                minX = p.x;
+            }
+            if (p.y < minY) {
+                minY = p.y;
+            }
+            if (p.x > maxX) {
+                maxX = p.x;
+            }
+            if (p.y > maxY) {
+                maxY = p.y;
+            }
+        }
         final Rectangle bounds = new Rectangle(
-                selected.minX,
-                selected.minY,
-                selected.maxX - selected.minX + 1,
-                selected.maxY - selected.minY + 1);
+                minX,
+                minY,
+                maxX - minX + 1,
+                maxY - minY + 1);
+
+        // Touch classifiedProcessor only for identity/type validation already done.
+        if (classifiedProcessor.getWidth() != width || classifiedProcessor.getHeight() != height) {
+            throw new IllegalStateException("classifiedProcessor dimensions changed unexpectedly");
+        }
 
         return new InitialEllipseAnalysisResult(
                 width,
                 height,
-                components.size(),
+                lumenComponentCount,
                 selectedPixels.size(),
                 bounds,
                 selectedPixels,
@@ -106,6 +177,74 @@ public final class InitialEllipseAnalyzer {
                 fill.proposedOtherClassPixelCount,
                 fill.otherLumenPixelsInsideEllipse,
                 fill.totalPixelCentersInsideEllipse);
+    }
+
+    private static List<Point> validateSelectedComponentPixels(
+            final byte[] pixels,
+            final int width,
+            final int height,
+            final List<Point> selectedLumenPixels) {
+        final List<Point> copy = new ArrayList<Point>(selectedLumenPixels.size());
+        final Set<Long> keys = new HashSet<Long>(selectedLumenPixels.size() * 2);
+        for (int i = 0; i < selectedLumenPixels.size(); i++) {
+            final Point raw = selectedLumenPixels.get(i);
+            if (raw == null) {
+                throw new IllegalArgumentException("selectedLumenPixels must not contain null");
+            }
+            final int x = raw.x;
+            final int y = raw.y;
+            if (x < 0 || y < 0 || x >= width || y >= height) {
+                throw new IllegalArgumentException(
+                        "selected pixel out of bounds: (" + x + "," + y + ")");
+            }
+            final Long key = Long.valueOf(pack(x, y));
+            if (!keys.add(key)) {
+                throw new IllegalArgumentException(
+                        "duplicate selected pixel coordinate: (" + x + "," + y + ")");
+            }
+            if (unsigned(pixels[y * width + x]) != ClassifierLabels.LUMEN_RESULT_VALUE) {
+                throw new IllegalArgumentException(
+                        "selected pixel is not raw Lumen value "
+                                + ClassifierLabels.LUMEN_RESULT_VALUE
+                                + " at (" + x + "," + y + ")");
+            }
+            copy.add(new Point(x, y));
+        }
+
+        if (!isSingleEightConnectedComponent(copy, keys)) {
+            throw new IllegalArgumentException(
+                    "selectedLumenPixels must form one 8-connected component");
+        }
+        return sortPoints(copy);
+    }
+
+    private static boolean isSingleEightConnectedComponent(
+            final List<Point> pixels,
+            final Set<Long> keys) {
+        if (pixels.isEmpty()) {
+            return false;
+        }
+        final Set<Long> visited = new HashSet<Long>(pixels.size() * 2);
+        final Queue<Point> queue = new ArrayDeque<Point>();
+        final Point start = pixels.get(0);
+        queue.add(start);
+        visited.add(Long.valueOf(pack(start.x, start.y)));
+        int reached = 0;
+        while (!queue.isEmpty()) {
+            final Point current = queue.remove();
+            reached++;
+            for (int i = 0; i < DX.length; i++) {
+                final int nx = current.x + DX[i];
+                final int ny = current.y + DY[i];
+                final Long nKey = Long.valueOf(pack(nx, ny));
+                if (!keys.contains(nKey) || visited.contains(nKey)) {
+                    continue;
+                }
+                visited.add(nKey);
+                queue.add(new Point(nx, ny));
+            }
+        }
+        return reached == pixels.size();
     }
 
     private static List<Component> extractLumenComponents(
