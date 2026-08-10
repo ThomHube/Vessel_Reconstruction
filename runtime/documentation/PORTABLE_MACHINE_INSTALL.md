@@ -70,14 +70,19 @@ cd /path/to/LumenPortable/install
 
 Allowed machine IDs: `machine_01` … `machine_99`.
 
-After a successful install, verify with:
+After a successful install, the installed launcher supports:
 
 ```bash
 $HOME/LumenRuntime/0c1c326/run_lumen_machine.sh --verify-only
+$HOME/LumenRuntime/0c1c326/run_lumen_machine.sh --precheck-only
 ```
 
-Full processing orchestration is a later deployment phase. Phase 4C1 currently
-supports `--verify-only` only.
+`--verify-only` validates the portable runtime and controller classes.
+
+`--precheck-only` requires a previously imported matching machine job and runs
+only the validated precheck stage. It does **not** automatically launch
+classification or reconstruction. Full overnight processing remains a later
+launcher phase.
 
 ## What the installer verifies
 
@@ -114,9 +119,10 @@ This installer does **not**:
 - launch Fiji
 - run `mvn package`
 - process TIFFs
-- run precheck
 - create a batch manifest
 - require or invoke system Git
-- enable full one-command processing (later deployment phase)
+- automatically launch classification or reconstruction
+- enable full overnight processing (later launcher phase)
 
-Batch processing is a later step after a successful install and verify.
+After install, use the pinned launcher for `--verify-only` / `--precheck-only`
+as documented above.

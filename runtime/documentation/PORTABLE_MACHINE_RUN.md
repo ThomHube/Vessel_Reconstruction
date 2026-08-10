@@ -1,56 +1,91 @@
-# Portable Machine Run (Phase 4C1)
+# Portable Machine Run
 
 `run_lumen_machine.sh` is the user-local launcher for an installed
 `LumenRuntime/0c1c326` tree. It discovers the installation root from its own
 path and uses only the portable JDK, Maven, Fiji, classifier, and config that
 `install_machine.sh` placed under that root.
 
-## Phase 4C1 scope
-
-Currently supported:
+## Supported modes
 
 ```bash
 ./run_lumen_machine.sh --verify-only
+./run_lumen_machine.sh --precheck-only
 ```
 
-This verifies the installation and ensures controller classes exist. **No images
-are processed** in Phase 4C1. Full one-command processing will be added in the
-next deployment phase.
+### `--verify-only`
 
-Any invocation without `--verify-only` exits nonzero with a clear message that
-processing orchestration is not enabled yet.
+Validates/prepares the runtime and, if needed, compiles controller classes
+offline. It does **not** require an imported job and launches **no Fiji work**.
+
+It also requires:
+
+- `BatchMachineSupervisorCli.class`
+- `BatchFullProcessingCli.class`
+- `BatchPrecheckSupervisorCli.class`
+
+### `--precheck-only`
+
+Requires an imported machine job at:
+
+```text
+$HOME/LumenRuntime/0c1c326/work/<machine-id>/job
+```
+
+Before launching precheck it verifies:
+
+- `package_checksums.sha256` paths are safe, then `sha256sum -c`
+- import/package machine IDs match the installed machine
+- production config and machine-manifest raw SHA-256 values
+- no symlinks under `job/input` or `job/batch/machines`
+
+Then it runs portable Java:
+
+```text
+<jdk_root>/bin/java -cp <project>/target/classes \
+  vesselreconstruction.ellipse.BatchPrecheckSupervisorCli \
+  --input-root <job>/input \
+  --batch-root <job>/batch \
+  --machine-id <installed-machine-id> \
+  --config <job>/production_batch.properties \
+  --fiji-launcher <fiji_root>/ImageJ-linux64
+```
+
+The launcher preserves the exact `BatchPrecheckSupervisorCli` exit code:
+
+| Code | Meaning |
+|------|---------|
+| 0 | all assigned images `PRECHECK_SUCCESS` |
+| 10 | one or more images require review |
+| 11 | one or more images failed |
+| 12 | invalid arguments |
+| 13 | invalid configuration |
+| 14 | invalid manifest |
+| 15 | Fiji launch failure |
+| 16 | unexpected supervisor failure |
+
+**Classification and reconstruction are not run.** Full overnight processing is
+still a later phase.
 
 ## Isolated tools
 
-Verification and any offline compile use:
+Verification / offline compile / precheck use:
 
-- portable `jdk21` (`JAVA_HOME` / `PATH` limited for that command only)
+- portable `jdk21`
 - portable Maven with `-o` and `-Dmaven.repo.local=<installed maven_repository>`
-- installed Fiji (checked, never launched in 4C1)
+- installed Fiji (only via the Java precheck supervisor in `--precheck-only`)
 
-System Java/Maven and `~/.m2` are not used. Global `PATH`, `~/.bashrc`, and
-`~/.profile` are not modified.
+System Java/Maven and `~/.m2` are not used.
 
-## Controller classes
+## Installer hash note
 
-The project restored from the canonical source archive initially has no
-`target/classes`. The first `--verify-only` run may compile offline:
+Changing `run_lumen_machine.sh` changes its SHA-256. The installer still pins
+the previous launcher hash during this development bite and **must be updated**
+in a separate deployment bite before this launcher is placed into the canonical
+portable deployment set (`LumenPortable/install/`).
 
-```text
-mvn -o -Dmaven.repo.local=<maven_repository> -DskipTests compile
-```
+## Not enabled yet
 
-Maven output goes to `logs/controller_offline_build.log`.
-
-Later verifies skip the compile when both of these already exist:
-
-- `target/classes/.../BatchMachineSupervisorCli.class`
-- `target/classes/.../BatchFullProcessingCli.class`
-
-## Not done in Phase 4C1
-
-- no Fiji launch
 - no `run_machine.sh` execution
-- no batch manifests
-- no precheck
-- no TIFF processing
+- no `BatchMachineSupervisorCli` full-processing orchestration
+- no `BatchFullProcessingCli` classification/reconstruction launch from this
+  launcher mode

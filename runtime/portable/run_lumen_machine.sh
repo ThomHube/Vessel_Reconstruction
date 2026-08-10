@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Lumen portable local runtime launcher (Phase 4C1 foundation).
+# Lumen portable local runtime launcher.
 #
 # Installed location:
 #   $HOME/LumenRuntime/0c1c326/run_lumen_machine.sh
 #
-# Phase 4C1 supports ONLY:
+# Supported modes:
 #   ./run_lumen_machine.sh --verify-only
+#   ./run_lumen_machine.sh --precheck-only
+#
+# NOTE: Changing this file changes its SHA-256. The installer still pins the
+# previous launcher hash until a separate deployment bite updates it.
 #
 set -euo pipefail
 
@@ -41,6 +45,16 @@ PROP_work_root=''
 PROP_classifier_sha256=''
 PROP_plugin_sha256=''
 
+# Imported job paths (precheck-only).
+JOB_ROOT=''
+JOB_INPUT=''
+JOB_BATCH=''
+JOB_CONFIG=''
+JOB_IMPORT_PROPS=''
+JOB_PACKAGE_PROPS=''
+JOB_CHECKSUMS=''
+JOB_MANIFEST=''
+
 fail() {
   local code="$1"
   shift
@@ -50,10 +64,17 @@ fail() {
 
 usage() {
   cat >&2 <<'EOF'
-Usage: ./run_lumen_machine.sh --verify-only
+Usage:
+  ./run_lumen_machine.sh --verify-only
+  ./run_lumen_machine.sh --precheck-only
 
-Phase 4C1 verifies the portable LumenRuntime installation and, if needed,
-compiles controller classes offline. Image processing is not enabled yet.
+--verify-only
+  Verify the portable LumenRuntime installation and offline controller classes.
+  Does not require an imported job and launches no Fiji work.
+
+--precheck-only
+  Verify an imported machine job, then run BatchPrecheckSupervisorCli only.
+  Classification and reconstruction are not enabled.
 EOF
 }
 
@@ -99,6 +120,53 @@ require_executable() {
   [[ -x "${path}" ]] || fail "${EXIT_VERIFY}" "${label} missing or not executable: ${path}"
 }
 
+prop_value() {
+  local props_path="$1"
+  local key="$2"
+  local line
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    case "${line}" in
+      "${key}="*)
+        printf '%s\n' "${line#*=}"
+        return 0
+        ;;
+    esac
+  done <"${props_path}"
+  return 1
+}
+
+require_prop() {
+  local props_path="$1"
+  local key="$2"
+  local value
+  value="$(prop_value "${props_path}" "${key}" || true)"
+  if [[ -z "${value}" ]]; then
+    fail "${EXIT_VERIFY}" "$(basename -- "${props_path}") missing required key: ${key}"
+  fi
+  printf '%s\n' "${value}"
+}
+
+is_safe_relative_path() {
+  local rel="$1"
+  if [[ -z "${rel}" ]]; then
+    return 1
+  fi
+  case "${rel}" in
+    /*|\\*)
+      return 1
+      ;;
+  esac
+  local part
+  IFS='/' read -r -a parts <<<"${rel}"
+  for part in "${parts[@]}"; do
+    if [[ "${part}" == ".." ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
 # Safe key=value parser. Does not source the file as shell.
 load_installation_properties() {
   local props_path="$1"
@@ -106,7 +174,6 @@ load_installation_properties() {
 
   local line key value
   while IFS= read -r line || [[ -n "${line}" ]]; do
-    # Trim CR and skip blanks/comments.
     line="${line%$'\r'}"
     [[ -z "${line}" || "${line}" == \#* ]] && continue
     case "${line}" in
@@ -194,7 +261,6 @@ verify_layout() {
   require_dir "${INSTALL_ROOT}/work/${PROP_machine_id}/batch" "machine batch workspace"
   require_dir "${INSTALL_ROOT}/work/${PROP_machine_id}/output" "machine output workspace"
 
-  # Cross-check absolute paths recorded in installation.properties.
   [[ -x "${PROP_fiji_root}/ImageJ-linux64" ]] \
     || fail "${EXIT_VERIFY}" "fiji_root launcher missing: ${PROP_fiji_root}/ImageJ-linux64"
   [[ -x "${PROP_jdk_root}/bin/java" ]] \
@@ -259,16 +325,18 @@ verify_portable_tools() {
 }
 
 controller_classes_present() {
-  local supervisor_class full_class
+  local supervisor_class full_class precheck_class
   supervisor_class="${PROP_project_root}/target/classes/vesselreconstruction/ellipse/BatchMachineSupervisorCli.class"
   full_class="${PROP_project_root}/target/classes/vesselreconstruction/ellipse/BatchFullProcessingCli.class"
-  [[ -f "${supervisor_class}" && -f "${full_class}" ]]
+  precheck_class="${PROP_project_root}/target/classes/vesselreconstruction/ellipse/BatchPrecheckSupervisorCli.class"
+  [[ -f "${supervisor_class}" && -f "${full_class}" && -f "${precheck_class}" ]]
 }
 
 ensure_controller_classes() {
-  local supervisor_class full_class build_log
+  local supervisor_class full_class precheck_class build_log
   supervisor_class="${PROP_project_root}/target/classes/vesselreconstruction/ellipse/BatchMachineSupervisorCli.class"
   full_class="${PROP_project_root}/target/classes/vesselreconstruction/ellipse/BatchFullProcessingCli.class"
+  precheck_class="${PROP_project_root}/target/classes/vesselreconstruction/ellipse/BatchPrecheckSupervisorCli.class"
 
   if controller_classes_present; then
     echo "controller classes: already built"
@@ -295,15 +363,16 @@ ensure_controller_classes() {
 
   if ! controller_classes_present; then
     fail "${EXIT_BUILD}" \
-      "Offline compile reported success but required .class files are missing (${supervisor_class}; ${full_class}). See log: ${build_log}"
+      "Offline compile reported success but required .class files are missing (${supervisor_class}; ${full_class}; ${precheck_class}). See log: ${build_log}"
   fi
   echo "controller classes: offline build succeeded"
 }
 
-run_verify_only() {
+prepare_runtime() {
   require_cmd sha256sum
   require_cmd awk
   require_cmd grep
+  require_cmd find
 
   resolve_script_path
   load_installation_properties "${INSTALL_ROOT}/installation.properties"
@@ -316,6 +385,117 @@ run_verify_only() {
   if ! controller_classes_present; then
     fail "${EXIT_VERIFY}" "controller classes missing after preparation"
   fi
+}
+
+validate_checksum_paths() {
+  local root="$1"
+  local checksums="$2"
+  local line path
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    [[ -z "${line}" ]] && continue
+    if [[ ! "${line}" =~ ^[0-9a-f]{64}[[:space:]][\ *](.+)$ ]]; then
+      fail "${EXIT_VERIFY}" "Malformed package_checksums.sha256 line: ${line}"
+    fi
+    path="${BASH_REMATCH[1]}"
+    path="${path#\*}"
+    is_safe_relative_path "${path}" \
+      || fail "${EXIT_VERIFY}" "Unsafe path in package_checksums.sha256: ${path}"
+    if [[ ! -e "${root}/${path}" ]]; then
+      fail "${EXIT_VERIFY}" "Checksum path missing in job: ${path}"
+    fi
+  done <"${checksums}"
+}
+
+reject_symlinks_under() {
+  local root="$1"
+  local label="$2"
+  local found
+  found="$(find "${root}" -type l -print -quit)"
+  if [[ -n "${found}" ]]; then
+    fail "${EXIT_VERIFY}" "${label} contains a symbolic link: ${found}"
+  fi
+}
+
+prepare_imported_job() {
+  JOB_ROOT="${PROP_work_root}/job"
+  require_dir "${JOB_ROOT}" "imported job root"
+  JOB_INPUT="${JOB_ROOT}/input"
+  JOB_BATCH="${JOB_ROOT}/batch"
+  JOB_CONFIG="${JOB_ROOT}/production_batch.properties"
+  JOB_IMPORT_PROPS="${JOB_ROOT}/import.properties"
+  JOB_PACKAGE_PROPS="${JOB_ROOT}/package.properties"
+  JOB_CHECKSUMS="${JOB_ROOT}/package_checksums.sha256"
+  JOB_MANIFEST="${JOB_ROOT}/batch/machines/${PROP_machine_id}_manifest.csv"
+
+  require_dir "${JOB_INPUT}" "job/input"
+  require_dir "${JOB_BATCH}" "job/batch"
+  require_file "${JOB_CONFIG}" "job/production_batch.properties"
+  require_file "${JOB_IMPORT_PROPS}" "job/import.properties"
+  require_file "${JOB_PACKAGE_PROPS}" "job/package.properties"
+  require_file "${JOB_CHECKSUMS}" "job/package_checksums.sha256"
+  require_file "${JOB_MANIFEST}" "job machine manifest"
+
+  local import_machine package_machine import_checkpoint
+  local config_file_sha manifest_sha actual_config_sha actual_manifest_sha
+  import_machine="$(require_prop "${JOB_IMPORT_PROPS}" "machine_id")"
+  package_machine="$(require_prop "${JOB_PACKAGE_PROPS}" "machine_id")"
+  import_checkpoint="$(require_prop "${JOB_IMPORT_PROPS}" "scientific_checkpoint")"
+  config_file_sha="$(require_prop "${JOB_IMPORT_PROPS}" "production_config_file_sha256")"
+  manifest_sha="$(require_prop "${JOB_IMPORT_PROPS}" "machine_manifest_sha256")"
+
+  [[ "${import_machine}" == "${PROP_machine_id}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "import.properties machine_id ${import_machine} != installed ${PROP_machine_id}"
+  [[ "${package_machine}" == "${PROP_machine_id}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "package.properties machine_id ${package_machine} != installed ${PROP_machine_id}"
+  [[ "${import_checkpoint}" == "${EXPECTED_COMMIT}" ]] \
+    || fail "${EXIT_VERIFY}" "import.properties scientific_checkpoint mismatch"
+  if [[ ! "${config_file_sha}" =~ ^[0-9a-f]{64}$ ]]; then
+    fail "${EXIT_VERIFY}" "import.properties production_config_file_sha256 invalid"
+  fi
+  if [[ ! "${manifest_sha}" =~ ^[0-9a-f]{64}$ ]]; then
+    fail "${EXIT_VERIFY}" "import.properties machine_manifest_sha256 invalid"
+  fi
+
+  validate_checksum_paths "${JOB_ROOT}" "${JOB_CHECKSUMS}"
+  (
+    cd -- "${JOB_ROOT}"
+    sha256sum -c -- package_checksums.sha256 >/dev/null
+  ) || fail "${EXIT_VERIFY}" "job package_checksums.sha256 verification failed"
+
+  actual_config_sha="$(sha256_of "${JOB_CONFIG}")"
+  [[ "${actual_config_sha}" == "${config_file_sha}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "job production_batch.properties SHA-256 mismatch: expected ${config_file_sha}, found ${actual_config_sha}"
+
+  actual_manifest_sha="$(sha256_of "${JOB_MANIFEST}")"
+  [[ "${actual_manifest_sha}" == "${manifest_sha}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "job machine manifest SHA-256 mismatch: expected ${manifest_sha}, found ${actual_manifest_sha}"
+
+  reject_symlinks_under "${JOB_INPUT}" "job/input"
+  reject_symlinks_under "${JOB_BATCH}/machines" "job/batch/machines"
+}
+
+interpret_precheck_exit() {
+  local code="$1"
+  case "${code}" in
+    0) echo "LUMEN PRECHECK SUCCESS" ;;
+    10) echo "LUMEN PRECHECK REVIEW REQUIRED" ;;
+    11) echo "LUMEN PRECHECK FAILED IMAGES" ;;
+    12) echo "LUMEN PRECHECK INVALID ARGUMENTS" ;;
+    13) echo "LUMEN PRECHECK INVALID CONFIGURATION" ;;
+    14) echo "LUMEN PRECHECK INVALID MANIFEST" ;;
+    15) echo "LUMEN PRECHECK FIJI LAUNCH FAILURE" ;;
+    16) echo "LUMEN PRECHECK UNEXPECTED SUPERVISOR FAILURE" ;;
+    *) echo "LUMEN PRECHECK NONZERO EXIT" ;;
+  esac
+}
+
+run_verify_only() {
+  prepare_runtime
 
   cat <<EOF
 LUMEN RUNTIME VERIFY SUCCESS
@@ -333,9 +513,52 @@ processing launched: NO
 EOF
 }
 
+run_precheck_only() {
+  prepare_runtime
+  prepare_imported_job
+
+  local classes_dir fiji_launcher precheck_rc
+  classes_dir="${PROP_project_root}/target/classes"
+  fiji_launcher="${PROP_fiji_root}/ImageJ-linux64"
+  require_file \
+    "${classes_dir}/vesselreconstruction/ellipse/BatchPrecheckSupervisorCli.class" \
+    "BatchPrecheckSupervisorCli.class"
+  require_executable "${fiji_launcher}" "Fiji launcher"
+
+  cat <<EOF
+LUMEN PRECHECK START
+machine: ${PROP_machine_id}
+job root: ${JOB_ROOT}
+input: ${JOB_INPUT}
+batch: ${JOB_BATCH}
+configuration: verified
+imported package: verified
+classification enabled: NO
+reconstruction enabled: NO
+EOF
+
+  set +e
+  "${PROP_jdk_root}/bin/java" -cp "${classes_dir}" \
+    vesselreconstruction.ellipse.BatchPrecheckSupervisorCli \
+    --input-root "${JOB_INPUT}" \
+    --batch-root "${JOB_BATCH}" \
+    --machine-id "${PROP_machine_id}" \
+    --config "${JOB_CONFIG}" \
+    --fiji-launcher "${fiji_launcher}"
+  precheck_rc=$?
+  set -e
+
+  interpret_precheck_exit "${precheck_rc}"
+  echo "machine: ${PROP_machine_id}"
+  echo "precheck exit code: ${precheck_rc}"
+  echo "classification launched: NO"
+  echo "reconstruction launched: NO"
+  exit "${precheck_rc}"
+}
+
 main() {
   if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
-    echo "ERROR: Do not source this script. Run: ./run_lumen_machine.sh --verify-only" >&2
+    echo "ERROR: Do not source this script. Run: ./run_lumen_machine.sh --verify-only|--precheck-only" >&2
     return "${EXIT_USAGE}" 2>/dev/null || exit "${EXIT_USAGE}"
   fi
 
@@ -344,10 +567,14 @@ main() {
     exit 0
   fi
 
+  if [[ "$#" -eq 1 && "$1" == "--precheck-only" ]]; then
+    run_precheck_only
+  fi
+
   usage
   echo >&2
-  echo "ERROR: Processing orchestration is intentionally not enabled in Phase 4C1." >&2
-  echo "Use: ./run_lumen_machine.sh --verify-only" >&2
+  echo "ERROR: Unknown or unsupported arguments." >&2
+  echo "Classification/reconstruction orchestration is not enabled yet." >&2
   exit "${EXIT_NOT_ENABLED}"
 }
 
