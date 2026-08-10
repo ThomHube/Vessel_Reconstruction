@@ -51,9 +51,14 @@ The analyzer operates on result pixel value 2 when extracting Class 3 Lumen.
 - combined summary
 - optional silent processing
 - no per-lumen windows
-- source image remains unchanged
-- no automatic saving
+- source masked-classified image remains unchanged
+- default minimum Lumen area: **1000** pixels (`AllLumenBatchConfiguration.DEFAULT_MINIMUM_LUMEN_AREA_PX`)
+- optional production saving (default on): reconstructed classified TIFF, per-segment
+  lumen measurements, artifact diagnostics, manifests, aggregate rebuild, run log
+- dataset root from `lumen.dataset_root` metadata, or user selection if absent/invalid
+- main scientific table measures **final** lumen geometry after accepted reconstruction
 - directory/stack processing is not implemented
+- no physical stitching; global X/Y remain `NA` until a later placement stage
 
 ### 3. Robust Ellipse Reconstruction - Inspect Component ID
 
@@ -88,6 +93,129 @@ Intended validation workflow:
 
 The inspector does not change thresholds, ellipse fitting, interval detection,
 artifact evidence, or reconstruction rules.
+
+### 4. Robust Ellipse Reconstruction - Tiled Weka Validation
+
+Production-oriented dataset preparation on top of mask-based tiled Weka classification
+(not reconstruction; no physical image stitching in this iteration):
+
+- loads a saved Trainable Weka `.model` through an OpenDialog
+- dialog configures fixed core tile pixel size (defaults 2048 x 2048), not tile counts
+- generates a downsampled automatic sample mask, reviewed/edited before classification
+- establishes physical calibration while the unchanged original RGB image is still available:
+  automatic red scale-bar detection (default; terminal-tick centerlines; entered physical
+  value; no OCR), with manual line / enter µm/px / valid micrometre metadata fallbacks
+  (300-PPI/inch TIFF metadata is rejected)
+- default **cropped production mode** classifies into a crop-sized 8-bit label image
+  (no full-size classified array); Weka still reads RGB tiles from the original source
+- full-size mode remains available when “Crop output to approved mask extent” is disabled
+- skips Weka for core tiles with no included mask pixels
+- outside the approved mask, output labels are forced to Background class 3
+- user selects a **dataset root directory** (default folder name `lumen_dataset`)
+- before Weka: copies original RGB byte-for-byte, saves approved mask and masked RGB,
+  then releases the temporary masked RGB ImagePlus
+- after Weka: saves masked classified TIFF (immutable input to All Lumina)
+- writes image/segment manifests, append-only processing runs, data dictionary, run log
+- TIFF Info includes `lumen.dataset_root` and canonical filenames; manifests are authoritative
+- cropped classified coordinates begin at 0,0; original coordinates require crop offsets
+- global segment positions require segment orientation and optional global start
+- the original RGB TIFF remains unchanged (scale bar stays only in the source)
+- optionally classifies an untiled reference on the same crop extent before comparison
+- does not run reconstruction and does not process directories
+- old flat `lumen_outputs` validation files may remain; new production runs use the dataset tree
+
+Raw direct encoding (display colors are not semantic evidence):
+
+| Pixel value | Class | Label |
+|-------------|-------|-------|
+| 0 | 1 | Wood |
+| 1 | 2 | Ray |
+| 2 | 3 | Lumen |
+| 3 | 4 | Background |
+
+Pipeline distinctions:
+
+1. **Physical sample segment** — a real sample piece identified by Sample/Segment IDs.
+2. **Valid analysis crop** — rectangular crop from the approved mask (+ optional padding).
+3. **Weka classification tile** — a temporary memory-management subdivision in crop-local
+   coordinates; original-source coordinates are used only when reading RGB / querying the mask.
+
+All Lumina recovers coordinate context from classified TIFF metadata and can commit
+production measurements into the shared dataset tree. Reconstruction **decision**
+thresholds remain unchanged; ellipse fitting in the scientific table is measurement-only.
+
+### Permanent production dataset tree
+
+Both tiled classification and All Lumina use `ProductionDatasetLayout` under one
+user-selected dataset root:
+
+```text
+lumen_dataset/
+├── images/
+│   ├── original_rgb/
+│   ├── approved_masks/
+│   ├── masked_rgb/
+│   ├── masked_classified/
+│   └── reconstructed_classified/
+├── data/
+│   ├── lumen_measurements/
+│   │   ├── per_segment/
+│   │   └── lumen_measurements_all.csv
+│   ├── manifests/
+│   │   ├── image_manifest.csv
+│   │   ├── segment_manifest.csv
+│   │   └── processing_runs.csv
+│   ├── diagnostics/
+│   │   ├── per_segment/
+│   │   └── artifact_diagnostics_all.csv
+│   └── data_dictionary.csv
+└── logs/
+```
+
+**Stage ownership**
+
+| Stage | Writes |
+|-------|--------|
+| Tiled Weka Validation | original RGB, approved mask, masked RGB, masked classified, classification manifest fields, segment row, processing_runs SUCCESS, classification log |
+| All Lumina | reconstructed classified (copy only), per-segment measurements + diagnostics, reconstruction manifest fields, aggregate refresh, processing_runs SUCCESS, reconstruction log |
+
+**Canonical filenames** (sanitized sample/segment IDs):
+`<safe_sample>__<safe_segment>__original_rgb.tif`, `...__approved_mask_ds<factor>.tif`,
+`...__masked_rgb.tif`, `...__masked_classified.tif`, `...__reconstructed_classified.tif`,
+`...__lumen_measurements.csv`, `...__artifact_diagnostics.csv`, logs as `<run_id>.log`.
+
+**Collision policy:** write if missing; reuse identical SHA-256; abort on conflict (no silent suffixes).
+
+**`processing_runs.csv`:** high-level cross-stage run table (24 columns).
+For `TILED_CLASSIFICATION`, `input_filename` is the original source TIFF filename
+(for example `scalebar1-1.tif`), and reconstruction-only fields
+(`minimum_lumen_area_px`, `total_components`, `eligible_components`,
+`reconstructed_components`, `changed_pixels`) are always `NA`.
+Classification tile counts and outside-mask forced-Background pixels are **not**
+stored in those reconstruction columns; they remain in classification logs, TIFF
+metadata, and the image manifest.
+`ALL_LUMINA_RECONSTRUCTION` rows populate the reconstruction fields with real
+values.
+Maintenance utility (unregistered, not a Fiji menu command; does not rerun image
+processing):
+
+```bash
+java -cp target/classes vesselreconstruction.ellipse.ProcessingRunsManifestRepairCli \
+  --dataset-root /path/to/lumen_dataset \
+  --sample-id scalebar1-1 \
+  --segment-id scalebar1-1 \
+  --source-filename scalebar1-1.tif
+```
+
+**R CSV conventions:** UTF-8, comma, decimal point, `TRUE`/`FALSE`, `NA` (never Java `NaN`),
+RFC escaping. Aggregates are rebuilt from per-segment files (no blind append).
+
+**Main measurement geometry:** final reconstructed lumen (original lumen + accepted
+Wood→Lumen pixels). `ellipse_axis_ratio_minor_major = minor/major`. Wall length =
+8-connected Moore chain (`MOORE_CHAIN_8_CONNECTED`). Nearest lumen scope = `SEGMENT`
+among valid main-table candidates. `measurement_valid == TRUE` is the recommended R filter.
+
+Masked classified is never overwritten by reconstruction. Original RGB pixels are never modified.
 
 Supported all-lumen scope:
 

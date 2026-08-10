@@ -5,8 +5,57 @@
 - **Algorithm:** Robust Ellipse Reconstruction
 - **Project directory:** `/home/thomas/IdeaProjects/minimal-ij1-plugin-ellipse`
 - **Artifact:** `VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar`
-- **Status:** Detailed single-lumen diagnostic prototype plus headless all-lumen batch processor implemented; directory dataset runner, automatic saving, and production reconstruction remain unimplemented
+- **Status:** Detailed single-lumen diagnostic prototype plus headless all-lumen batch processor implemented; separate tiled Weka classification validation stage implemented; directory dataset runner, automatic saving, and production reconstruction remain unimplemented
 - **Independence:** This repository does not contain the legacy contour bridgepoint algorithm
+
+## Pipeline distinctions
+
+1. **Physical sample segment** — a real sample piece.
+2. **Valid analysis crop** — a future stage excluding damaged left/right physical edges.
+3. **Weka classification tile** — a temporary memory-management subdivision used only
+   by Trainable Weka Segmentation's official tiled API. Tiles do not create a new
+   vessel coordinate system. The classified output keeps the source width, height,
+   and local pixel coordinates.
+
+## Tiled Weka classification and dataset preparation
+
+Menu: **Robust Ellipse Reconstruction - Tiled Weka Validation**
+
+Purpose:
+
+- memory-safe tiled Weka classification with an approved sample mask
+- production dataset preparation: calibration, analysis crop, manifests, metadata
+- optional full-size validation mode and optional untiled comparison
+
+Behavior:
+
+- loads a saved Weka model selected by the user (path is not hardcoded)
+- creates `new WekaSegmentation(false)` and calls `loadClassifier(modelPath)`
+- stages: main classification/dataset dialog → mask review → calibration →
+  classify/save
+- default cropped production mode allocates only a crop-sized classified image;
+  Weka RGB tiles are read from the original source with crop offsets
+- full-size mode remains when crop output is disabled
+- calibration: automatic red scale-bar detection (default; terminal-tick center-to-center;
+  entered physical µm value; text excluded; exterior-mask preferred), with manual line /
+  enter µm/px / valid µm metadata fallbacks (inch/PPI metadata is rejected)
+- authoritative `lumen_dataset_manifest.csv` plus per-run manifest; TIFF Info
+  duplicates coordinate/calibration context (`lumen.schema_version=1`)
+- original RGB source remains unchanged; scale bar stays in the source TIFF
+- no physical image stitching in this iteration
+- does not run reconstruction or process directories
+
+Raw mapping (display colors are not semantic evidence):
+
+| Pixel value | Label |
+|------------:|-------|
+| 0 | Wood |
+| 1 | Ray |
+| 2 | Lumen |
+| 3 | Background |
+
+The reconstruction algorithm is frozen during this stage. Reconstruction
+thresholds and component-ID behavior are unchanged.
 
 ## Mathematical free-ellipse stage
 
@@ -72,6 +121,18 @@ Implemented:
 - diagnostic change mask and two-panel reconstruction review visualization
 - headless all-lumen batch processor (`AllLumenBatchProcessor`) with `SUMMARY_ONLY` and `SILENT` display policies
 - separate ImageJ entry point: Robust Ellipse Reconstruction - All Lumina
+- separate ImageJ entry point: Robust Ellipse Reconstruction - Tiled Weka Validation
+  (official TWS tiled API only; no reconstruction)
+- shared production dataset layout (`ProductionDatasetLayout`) under a user-selected
+  dataset root (`images/`, `data/`, `logs/`); see README for filenames, R CSV
+  conventions, manifests, aggregate rebuild, and stage ownership
+- All Lumina may save reconstructed classified + scientific tables without modifying
+  the masked-classified input; no directory batching or physical stitching yet
+- `processing_runs.csv` stores high-level cross-stage rows only; TILED_CLASSIFICATION
+  uses the original source TIFF filename and NA for reconstruction-only columns;
+  classification tile / outside-mask counts stay in logs and image metadata
+- unregistered maintenance CLI `ProcessingRunsManifestRepairCli` can repair misplaced
+  classification values without rerunning Weka or All Lumina
 
 The initial ellipse may be influenced by the artifact because all observed
 boundary points are included.
@@ -276,6 +337,12 @@ Not yet implemented:
 - repeated interval detection after refitting
 - stopping based on parameter stability
 - production reconstruction
+- directory Weka classification processing
+- physical segment manifests
+- valid-region cropping
+- global sample coordinates
+- automatic reconstruction after classification
+- automatic classification output saving
 
 Planned later architecture:
 

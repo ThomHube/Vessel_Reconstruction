@@ -2,8 +2,10 @@ package vesselreconstruction.ellipse;
 
 import ij.IJ;
 import ij.ImagePlus;
+import ij.Prefs;
 import ij.WindowManager;
 import ij.gui.GenericDialog;
+import ij.io.DirectoryChooser;
 import ij.measure.ResultsTable;
 import ij.process.ByteProcessor;
 import ij.process.ColorProcessor;
@@ -12,17 +14,26 @@ import ij.plugin.PlugIn;
 
 import java.awt.Color;
 import java.awt.Font;
-import java.awt.Point;
 import java.awt.Rectangle;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
- * ImageJ entry point for all-lumen diagnostic batch processing.
+ * ImageJ entry point for all-lumen diagnostic batch processing and production
+ * reconstruction saving.
  *
  * <p>SUMMARY_ONLY may show combined outputs only. SILENT creates no windows.</p>
  */
 public final class AllLumenSummaryPlugin implements PlugIn {
+
+    private static final String PREFS_DATASET_ROOT =
+            "vesselreconstruction.ellipse.allLumina.datasetRoot";
 
     private static final Color COLOR_WOOD = new Color(0, 100, 0);
     private static final Color COLOR_RAY = new Color(140, 80, 0);
@@ -36,9 +47,7 @@ public final class AllLumenSummaryPlugin implements PlugIn {
         IJ.log("Mode: ALL_LUMEN_DIAGNOSTIC_BATCH");
         IJ.log("Per-lumen windows: DISABLED");
         IJ.log("Source image modification: DISABLED");
-        IJ.log("Automatic file saving: DISABLED");
         IJ.log("Directory processing: NOT IMPLEMENTED");
-        IJ.log("Production reconstruction: NOT APPLIED");
 
         final ImagePlus image = WindowManager.getCurrentImage();
         if (image == null) {
@@ -56,6 +65,16 @@ public final class AllLumenSummaryPlugin implements PlugIn {
             return;
         }
 
+        final LumenImageMetadata.ParseResult parsedMetadata = LumenImageMetadata.parse(
+                image.getProperty("Info") == null ? null : String.valueOf(image.getProperty("Info")));
+        final Optional<String> metaDatasetRoot = readDatasetRootFromInfo(image);
+        final String sampleIdDisplay = parsedMetadata.isAvailable()
+                ? parsedMetadata.getMetadata().get().getRequired(LumenImageMetadata.KEY_SAMPLE_ID)
+                : "(unknown)";
+        final String segmentIdDisplay = parsedMetadata.isAvailable()
+                ? parsedMetadata.getMetadata().get().getRequired(LumenImageMetadata.KEY_SEGMENT_ID)
+                : "(unknown)";
+
         final GenericDialog dialog = new GenericDialog(
                 "Robust Ellipse Reconstruction - All Lumina");
         dialog.addChoice(
@@ -65,8 +84,34 @@ public final class AllLumenSummaryPlugin implements PlugIn {
                         AllLumenBatchConfiguration.DisplayPolicy.SILENT.name()
                 },
                 AllLumenBatchConfiguration.DisplayPolicy.SUMMARY_ONLY.name());
-        dialog.addNumericField("Minimum Lumen area:", 100, 0);
+        dialog.addNumericField(
+                "Minimum Lumen area in pixels:",
+                AllLumenBatchConfiguration.DEFAULT_MINIMUM_LUMEN_AREA_PX,
+                0);
         dialog.addCheckbox("Skip border-touching components", true);
+        dialog.addMessage("--- Production saving ---");
+        dialog.addCheckbox("Save production outputs", true);
+        dialog.addCheckbox("Refresh dataset aggregate tables", true);
+        dialog.addMessage("Sample ID: " + sampleIdDisplay);
+        dialog.addMessage("Segment ID: " + segmentIdDisplay);
+        dialog.addMessage("Dataset root (from metadata): "
+                + (metaDatasetRoot.isPresent() ? metaDatasetRoot.get() : "(absent)"));
+        if (parsedMetadata.isAvailable()) {
+            final LumenImageMetadata meta = parsedMetadata.getMetadata().get();
+            final String safeSample = FilenameSanitizer.sanitizeOrUnnamed(
+                    meta.getRequired(LumenImageMetadata.KEY_SAMPLE_ID));
+            final String safeSegment = FilenameSanitizer.sanitizeOrUnnamed(
+                    meta.getRequired(LumenImageMetadata.KEY_SEGMENT_ID));
+            dialog.addMessage("Masked-classified input: " + safeTitle(image));
+            dialog.addMessage("Reconstructed-classified output: "
+                    + FilenameSanitizer.reconstructedClassifiedFilename(safeSample, safeSegment));
+        } else {
+            dialog.addMessage("Masked-classified input: " + safeTitle(image));
+            dialog.addMessage("Reconstructed-classified output: (requires metadata)");
+        }
+        dialog.addMessage(
+                "The source masked-classified image is never modified.\n"
+                        + "Legacy images without dataset metadata can still run diagnostically.");
         dialog.showDialog();
         if (dialog.wasCanceled()) {
             return;
@@ -75,10 +120,12 @@ public final class AllLumenSummaryPlugin implements PlugIn {
         final String modeName = dialog.getNextChoice();
         final int minimumArea = (int) Math.round(dialog.getNextNumber());
         final boolean skipBorder = dialog.getNextBoolean();
-        if (minimumArea <= 0) {
+        final boolean saveProduction = dialog.getNextBoolean();
+        final boolean refreshAggregates = dialog.getNextBoolean();
+        if (minimumArea < 1) {
             IJ.error(
                     "Robust Ellipse Reconstruction - All Lumina",
-                    "Minimum Lumen area must be positive.");
+                    "Minimum Lumen area must be >= 1.");
             return;
         }
 
@@ -106,14 +153,31 @@ public final class AllLumenSummaryPlugin implements PlugIn {
             return;
         }
 
-        logBatchSummary(image.getTitle(), result, configuration);
+        logBatchSummary(image.getTitle(), result, configuration, saveProduction);
+
+        if (saveProduction) {
+            try {
+                saveProductionOutputs(
+                        image, classified, result, minimumArea,
+                        metaDatasetRoot, parsedMetadata, refreshAggregates);
+            } catch (final Exception ex) {
+                IJ.log("ERROR: Production save failed; SUCCESS not written.");
+                IJ.log(String.valueOf(ex.getMessage()));
+                IJ.error(
+                        "Robust Ellipse Reconstruction - All Lumina",
+                        "Production save failed:\n" + String.valueOf(ex.getMessage())
+                                + "\nDiagnostic results remain available.");
+            }
+        } else {
+            IJ.log("Production saving disabled; diagnostic-only behavior.");
+        }
 
         if (policy == AllLumenBatchConfiguration.DisplayPolicy.SILENT) {
             return;
         }
 
         if (configuration.isCreateResultsTable()) {
-            showResultsTable(result);
+            showResultsTable(image, result);
         }
         if (configuration.isCreateDecisionOverview()) {
             showDecisionOverview(image.getTitle(), classified, result);
@@ -136,10 +200,90 @@ public final class AllLumenSummaryPlugin implements PlugIn {
         }
     }
 
+    private static void saveProductionOutputs(
+            final ImagePlus image,
+            final ByteProcessor classified,
+            final AllLumenBatchResult result,
+            final int minimumArea,
+            final Optional<String> metaDatasetRoot,
+            final LumenImageMetadata.ParseResult parsedMetadata,
+            final boolean refreshAggregates) throws IOException {
+        if (result.getProcessingErrorCount() > 0) {
+            throw new IOException(
+                    "Processing errors occurred; refusing production SUCCESS.");
+        }
+        if (!parsedMetadata.isAvailable()) {
+            throw new IOException(
+                    "Production saving requires Lumen coordinate metadata on the "
+                            + "masked-classified TIFF. Run tiled classification first, "
+                            + "or supply a production-tagged image.");
+        }
+        final ProductionDatasetLayout layout = resolveDatasetRoot(metaDatasetRoot);
+        layout.ensureDirectoriesExist();
+        final AllLuminaDatasetWriter.Result saved = new AllLuminaDatasetWriter().write(
+                image,
+                classified,
+                result,
+                minimumArea,
+                layout,
+                parsedMetadata.getMetadata().get(),
+                refreshAggregates);
+        IJ.log("Production reconstruction saved.");
+        IJ.log("Reconstructed classified: " + saved.reconstructedClassified);
+        IJ.log("Per-segment measurements: " + saved.measurements);
+        IJ.log("Per-segment diagnostics: " + saved.diagnostics);
+        IJ.log("Run ID: " + saved.runId);
+    }
+
+    private static ProductionDatasetLayout resolveDatasetRoot(
+            final Optional<String> metaDatasetRoot) {
+        if (metaDatasetRoot.isPresent()) {
+            final Path path = Paths.get(metaDatasetRoot.get().trim());
+            if (Files.isDirectory(path)) {
+                Prefs.set(PREFS_DATASET_ROOT, path.toAbsolutePath().toString());
+                return new ProductionDatasetLayout(path);
+            }
+            IJ.log("Metadata dataset root is absent or invalid: " + metaDatasetRoot.get());
+        }
+        final String prefs = Prefs.get(PREFS_DATASET_ROOT, "");
+        final DirectoryChooser chooser = new DirectoryChooser("Choose dataset root directory");
+        if (prefs != null && !prefs.trim().isEmpty()) {
+            // DirectoryChooser has no setDirectory in all IJ versions; message only.
+            IJ.log("Previous dataset root preference: " + prefs);
+        }
+        final String chosen = chooser.getDirectory();
+        if (chosen == null || chosen.trim().isEmpty()) {
+            throw new IllegalArgumentException("Dataset root selection cancelled.");
+        }
+        final File root = new File(chosen.trim());
+        Prefs.set(PREFS_DATASET_ROOT, root.getAbsolutePath());
+        return new ProductionDatasetLayout(root);
+    }
+
+    private static Optional<String> readDatasetRootFromInfo(final ImagePlus image) {
+        final Object info = image.getProperty("Info");
+        if (info == null) {
+            return Optional.empty();
+        }
+        final String text = String.valueOf(info);
+        final String[] lines = text.split("\n");
+        for (int i = 0; i < lines.length; i++) {
+            final String line = lines[i].trim();
+            if (line.startsWith("lumen.dataset_root=")) {
+                final String value = line.substring("lumen.dataset_root=".length()).trim();
+                if (!value.isEmpty()) {
+                    return Optional.of(value);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     private static void logBatchSummary(
             final String sourceTitle,
             final AllLumenBatchResult result,
-            final AllLumenBatchConfiguration configuration) {
+            final AllLumenBatchConfiguration configuration,
+            final boolean saveProduction) {
         IJ.log("All-lumen diagnostic batch summary:");
         IJ.log("sourceTitle,width,height,totalComponents,eligibleComponents,"
                 + "reconstructedComponents,combinedChangedPixels,belowMinimumArea,"
@@ -175,16 +319,22 @@ public final class AllLumenSummaryPlugin implements PlugIn {
         IJ.log("Only non-conflicting strong single-artifact candidates were combined.");
         IJ.log("No per-Lumen diagnostic windows were created.");
         IJ.log("The source image was not modified.");
-        IJ.log("Outputs were not saved automatically.");
-        IJ.log("Production dataset processing is not yet enabled.");
+        if (!saveProduction) {
+            IJ.log("Outputs were not saved automatically.");
+        }
     }
 
-    private static void showResultsTable(final AllLumenBatchResult result) {
+    private static void showResultsTable(
+            final ImagePlus classifiedImage,
+            final AllLumenBatchResult result) {
         final ResultsTable table = new ResultsTable();
         final List<LumenBatchItemResult> items = result.getItemResults();
+        final LumenResultCoordinateEnricher enricher = new LumenResultCoordinateEnricher();
         for (int i = 0; i < items.size(); i++) {
             final LumenBatchItemResult item = items.get(i);
             final Rectangle bounds = item.getSourceBounds();
+            final LumenResultCoordinateEnricher.EnrichedValues coords =
+                    enricher.enrich(classifiedImage, item);
             table.incrementCounter();
             table.addValue("Component_ID", item.getComponentId());
             table.addValue("Area", item.getSourceArea());
@@ -225,6 +375,28 @@ public final class AllLumenSummaryPlugin implements PlugIn {
             addDoubleOrBlank(table, "Added_Area_Fraction", item.getAddedAreaFraction());
             table.addValue("Processing_Time_ms",
                     item.getProcessingTimeNanoseconds() / 1.0e6);
+
+            table.addValue("sample_id", coords.sampleId);
+            table.addValue("segment_id", coords.segmentId);
+            table.addValue("segment_order", coords.segmentOrder);
+            table.addValue("segment_orientation", coords.segmentOrientation);
+            table.addValue("crop_x_offset_px", coords.cropXOffsetPx);
+            table.addValue("crop_y_offset_px", coords.cropYOffsetPx);
+            table.addValue("original_width_px", coords.originalWidthPx);
+            table.addValue("original_height_px", coords.originalHeightPx);
+            table.addValue("pixel_width_um", coords.pixelWidthUm);
+            table.addValue("pixel_height_um", coords.pixelHeightUm);
+            table.addValue("centroid_x_crop_px", coords.centroidXCropPx);
+            table.addValue("centroid_y_crop_px", coords.centroidYCropPx);
+            table.addValue("centroid_x_original_px", coords.centroidXOriginalPx);
+            table.addValue("centroid_y_original_px", coords.centroidYOriginalPx);
+            table.addValue("centroid_x_original_um", coords.centroidXOriginalUm);
+            table.addValue("centroid_y_original_um", coords.centroidYOriginalUm);
+            table.addValue("segment_axis_position_um", coords.segmentAxisPositionUm);
+            table.addValue("global_axis_position_um", coords.globalAxisPositionUm);
+            table.addValue("area_um2", coords.areaUm2);
+            table.addValue("bounding_box_width_um", coords.boundingBoxWidthUm);
+            table.addValue("bounding_box_height_um", coords.boundingBoxHeightUm);
         }
         table.show("All Lumen Reconstruction Results");
     }
@@ -299,40 +471,35 @@ public final class AllLumenSummaryPlugin implements PlugIn {
             final Color color,
             final String text) {
         rgb.setColor(color);
-        rgb.fillRect(x, y - 8, 10, 10);
+        rgb.fillRect(x, y - 9, 10, 10);
         rgb.setColor(Color.WHITE);
         rgb.drawString(text, x + 14, y);
         return y + 14;
     }
 
     private static Color colorForStatus(final LumenBatchItemResult.Status status) {
-        if (status == LumenBatchItemResult.Status.RECONSTRUCTED_SINGLE_ARTIFACT) {
-            return Color.GREEN;
+        switch (status) {
+            case RECONSTRUCTED_SINGLE_ARTIFACT:
+                return Color.GREEN;
+            case NO_INTERVAL_SELECTED:
+                return Color.CYAN;
+            case INSUFFICIENT_ARTIFACT_EVIDENCE:
+                return Color.YELLOW;
+            case OTHER_LUMEN_OVERLAP:
+                return new Color(255, 140, 0);
+            case BELOW_MINIMUM_AREA:
+                return new Color(60, 60, 60);
+            case BORDER_TOUCHING_SKIPPED:
+                return Color.MAGENTA;
+            case CANDIDATE_CONFLICT:
+                return Color.WHITE;
+            case UNSUPPORTED_BOUNDARY:
+            case PROCESSING_ERROR:
+            case INITIAL_ANALYSIS_FAILED:
+                return Color.RED;
+            default:
+                return new Color(255, 180, 120);
         }
-        if (status == LumenBatchItemResult.Status.NO_INTERVAL_SELECTED) {
-            return Color.CYAN;
-        }
-        if (status == LumenBatchItemResult.Status.INSUFFICIENT_ARTIFACT_EVIDENCE) {
-            return Color.YELLOW;
-        }
-        if (status == LumenBatchItemResult.Status.OTHER_LUMEN_OVERLAP) {
-            return new Color(255, 140, 0);
-        }
-        if (status == LumenBatchItemResult.Status.BELOW_MINIMUM_AREA) {
-            return new Color(60, 60, 60);
-        }
-        if (status == LumenBatchItemResult.Status.BORDER_TOUCHING_SKIPPED) {
-            return Color.MAGENTA;
-        }
-        if (status == LumenBatchItemResult.Status.CANDIDATE_CONFLICT) {
-            return Color.WHITE;
-        }
-        if (status == LumenBatchItemResult.Status.UNSUPPORTED_BOUNDARY
-                || status == LumenBatchItemResult.Status.INITIAL_ANALYSIS_FAILED
-                || status == LumenBatchItemResult.Status.PROCESSING_ERROR) {
-            return Color.RED;
-        }
-        return new Color(255, 180, 120);
     }
 
     private static Color darken(final Color color) {
@@ -342,28 +509,33 @@ public final class AllLumenSummaryPlugin implements PlugIn {
                 Math.max(0, color.getBlue() / 2));
     }
 
-    private static void addIntOrBlank(
-            final ResultsTable table,
-            final String heading,
-            final int value) {
+    private static void addIntOrBlank(final ResultsTable table, final String column, final int value) {
         if (value < 0) {
-            table.addValue(heading, Double.NaN);
+            table.addValue(column, Double.NaN);
         } else {
-            table.addValue(heading, value);
+            table.addValue(column, value);
         }
     }
 
     private static void addDoubleOrBlank(
             final ResultsTable table,
-            final String heading,
+            final String column,
             final double value) {
-        table.addValue(heading, value);
+        if (Double.isNaN(value) || Double.isInfinite(value)) {
+            table.addValue(column, Double.NaN);
+        } else {
+            table.addValue(column, value);
+        }
     }
 
-    private static String sanitize(final String text) {
-        if (text == null) {
+    private static String sanitize(final String value) {
+        if (value == null) {
             return "";
         }
-        return text.replace(',', ';').replace('\n', ' ');
+        return value.replace(',', '_');
+    }
+
+    private static String safeTitle(final ImagePlus image) {
+        return image.getTitle() == null ? "Untitled" : image.getTitle();
     }
 }

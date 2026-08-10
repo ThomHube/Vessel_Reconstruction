@@ -114,12 +114,29 @@
         </dependency>
 
         <dependency>
+            <groupId>sc.fiji</groupId>
+            <artifactId>Trainable_Segmentation</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.jupiter.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <!--
+      SciJava artifacts such as Trainable_Segmentation are published to
+      maven.scijava.org, not Maven Central. The version remains managed by
+      the pom-scijava parent (currently 3.2.35).
+    -->
+    <repositories>
+        <repository>
+            <id>scijava.public</id>
+            <url>https://maven.scijava.org/content/groups/public</url>
+        </repository>
+    </repositories>
 
     <build>
         <finalName>VesselReconstructionEllipse-0.1.0-SNAPSHOT</finalName>

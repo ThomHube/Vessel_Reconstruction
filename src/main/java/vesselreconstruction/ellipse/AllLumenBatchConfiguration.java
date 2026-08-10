@@ -8,6 +8,11 @@ import java.util.Objects;
  */
 public final class AllLumenBatchConfiguration {
 
+    /**
+     * Authoritative production default for the registered All Lumina command.
+     */
+    public static final int DEFAULT_MINIMUM_LUMEN_AREA_PX = 1000;
+
     public enum DisplayPolicy {
         SUMMARY_ONLY,
         SILENT
@@ -55,7 +60,7 @@ public final class AllLumenBatchConfiguration {
 
     public static AllLumenBatchConfiguration summaryDefaults() {
         return new AllLumenBatchConfiguration(
-                100,
+                DEFAULT_MINIMUM_LUMEN_AREA_PX,
                 true,
                 DisplayPolicy.SUMMARY_ONLY,
                 true,
@@ -66,7 +71,7 @@ public final class AllLumenBatchConfiguration {
 
     public static AllLumenBatchConfiguration silentDefaults() {
         return new AllLumenBatchConfiguration(
-                100,
+                DEFAULT_MINIMUM_LUMEN_AREA_PX,
                 true,
                 DisplayPolicy.SILENT,
                 false,
