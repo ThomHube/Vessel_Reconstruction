@@ -13,8 +13,10 @@ readonly EXPECTED_COMMIT='0c1c326fc07f7e049f1d359226e810c7b8db24ce'
 readonly EXPECTED_COMMIT_SHORT='0c1c326'
 readonly EXPECTED_CLASSIFIER_SHA256='d109f00d1ca16447bc433303cb6f5ec1a5a9d27a3215b24d87df77346b04340c'
 readonly EXPECTED_PLUGIN_SHA256='81fa019d40ceb085d28ba6b82a5972615919a115a28014e6bbdebed3750a6cde'
+readonly EXPECTED_LAUNCHER_SHA256='dd72068469cf9e32a6702bb694c30f7aa5befba0df8ef87af0c37528cea2a05b'
 readonly PLUGIN_JAR_NAME='VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar'
 readonly CLASSIFIER_NAME='Classifier9.model'
+readonly LAUNCHER_NAME='run_lumen_machine.sh'
 
 readonly EXIT_USAGE=2
 readonly EXIT_VALIDATION=3
@@ -22,11 +24,13 @@ readonly EXIT_INSTALL=4
 readonly EXIT_VERIFY=5
 
 SCRIPT_PATH=''
+INSTALLER_DIR=''
 PORTABLE_ROOT=''
 CANONICAL_ROOT=''
 STAGING_ROOT=''
 INSTALL_ROOT=''
 MACHINE_ID=''
+SOURCE_LAUNCHER_PATH=''
 
 cleanup_staging() {
   local staging="${STAGING_ROOT:-}"
@@ -115,13 +119,12 @@ resolve_script_path() {
     fi
   done
   SCRIPT_PATH="$(cd -P "$(dirname -- "${source}")" && pwd)/$(basename -- "${source}")"
+  INSTALLER_DIR="$(cd -P "$(dirname -- "${SCRIPT_PATH}")" && pwd)"
 }
 
 resolve_portable_root() {
   # Deployed as: LumenPortable/install/install_machine.sh
-  local install_dir
-  install_dir="$(cd -P "$(dirname -- "${SCRIPT_PATH}")" && pwd)"
-  PORTABLE_ROOT="$(cd -P "${install_dir}/.." && pwd)"
+  PORTABLE_ROOT="$(cd -P "${INSTALLER_DIR}/.." && pwd)"
   CANONICAL_ROOT="${PORTABLE_ROOT}/canonical"
 }
 
@@ -154,6 +157,44 @@ verify_canonical_inputs() {
   require_file "${CANONICAL_ROOT}/runtime/maven_repository_${EXPECTED_COMMIT_SHORT}.tar.gz" "Maven repository archive"
   require_file "${CANONICAL_ROOT}/source/minimal-ij1-plugin-ellipse_${EXPECTED_COMMIT_SHORT}.tar.gz" "source archive"
   require_file "${CANONICAL_ROOT}/models/${CLASSIFIER_NAME}" "classifier model"
+
+  SOURCE_LAUNCHER_PATH="${INSTALLER_DIR}/${LAUNCHER_NAME}"
+  require_file "${SOURCE_LAUNCHER_PATH}" "portable launcher (${LAUNCHER_NAME})"
+  verify_sha256 \
+    "${SOURCE_LAUNCHER_PATH}" \
+    "${EXPECTED_LAUNCHER_SHA256}" \
+    "portable launcher"
+}
+
+prop_value() {
+  local props_path="$1"
+  local key="$2"
+  local line
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    case "${line}" in
+      "${key}="*)
+        printf '%s\n' "${line#*=}"
+        return 0
+        ;;
+    esac
+  done <"${props_path}"
+  return 1
+}
+
+stage_and_verify_launcher() {
+  local staging_launcher="${STAGING_ROOT}/${LAUNCHER_NAME}"
+  cp -f -- "${SOURCE_LAUNCHER_PATH}" "${staging_launcher}"
+  chmod 755 -- "${staging_launcher}"
+  [[ -x "${staging_launcher}" ]] \
+    || fail "${EXIT_VERIFY}" "Staged launcher is not executable: ${staging_launcher}"
+  verify_sha256 \
+    "${staging_launcher}" \
+    "${EXPECTED_LAUNCHER_SHA256}" \
+    "staged portable launcher"
+  if ! bash -n -- "${staging_launcher}"; then
+    fail "${EXIT_VERIFY}" "Staged launcher failed bash -n: ${staging_launcher}"
+  fi
 }
 
 count_top_entries() {
@@ -287,6 +328,7 @@ write_installation_properties() {
   local classifier_path="$8"
   local config_path="$9"
   local work_root="${10}"
+  local launcher_path="${install_root}/${LAUNCHER_NAME}"
   local timestamp_ms
   timestamp_ms="$(date +%s%3N 2>/dev/null || echo "$(($(date +%s) * 1000))")"
 
@@ -297,6 +339,7 @@ production_commit_short=${EXPECTED_COMMIT_SHORT}
 machine_id=${MACHINE_ID}
 classifier_sha256=${EXPECTED_CLASSIFIER_SHA256}
 plugin_sha256=${EXPECTED_PLUGIN_SHA256}
+launcher_sha256=${EXPECTED_LAUNCHER_SHA256}
 installation_root=${install_root}
 project_root=${project_root}
 fiji_root=${fiji_root}
@@ -306,6 +349,7 @@ maven_repository=${maven_repo}
 classifier_path=${classifier_path}
 config_path=${config_path}
 work_root=${work_root}
+launcher_path=${launcher_path}
 installation_timestamp_epoch_ms=${timestamp_ms}
 EOF
 }
@@ -320,22 +364,60 @@ check_existing_installation() {
   fi
 
   local props="${install_root}/installation.properties"
-  if [[ -f "${props}" ]]; then
-    local existing_commit existing_machine
-    existing_commit="$(grep -E '^production_commit=' "${props}" | head -n 1 | cut -d= -f2- || true)"
-    existing_machine="$(grep -E '^machine_id=' "${props}" | head -n 1 | cut -d= -f2- || true)"
-    if [[ "${existing_commit}" == "${EXPECTED_COMMIT}" ]]; then
-      echo "LUMEN INSTALLATION ALREADY PRESENT"
-      echo "machine: ${existing_machine:-unknown}"
-      echo "checkpoint: ${EXPECTED_COMMIT_SHORT}"
-      echo "install root: ${install_root}"
-      echo "No changes made."
-      exit 0
-    fi
+  if [[ ! -f "${props}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Install directory already exists without installation.properties: ${install_root}"
   fi
 
-  fail "${EXIT_INSTALL}" \
-    "Install directory already exists and is not a verified ${EXPECTED_COMMIT_SHORT} installation: ${install_root}"
+  local existing_commit existing_machine launcher_path launcher_sha
+  existing_commit="$(prop_value "${props}" "production_commit" || true)"
+  existing_machine="$(prop_value "${props}" "machine_id" || true)"
+  launcher_path="$(prop_value "${props}" "launcher_path" || true)"
+  launcher_sha="$(prop_value "${props}" "launcher_sha256" || true)"
+
+  if [[ "${existing_commit}" != "${EXPECTED_COMMIT}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Install directory already exists and is not a verified ${EXPECTED_COMMIT_SHORT} installation: ${install_root}"
+  fi
+
+  if [[ -z "${launcher_path}" || -z "${launcher_sha}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation at ${install_root} predates the launcher-integrated installer (missing launcher_path/launcher_sha256). Recreate it intentionally; this installer will not delete or upgrade it automatically."
+  fi
+  if [[ "${launcher_sha}" != "${EXPECTED_LAUNCHER_SHA256}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation launcher_sha256 mismatch at ${install_root}: expected ${EXPECTED_LAUNCHER_SHA256}, found ${launcher_sha}"
+  fi
+  if [[ "${launcher_path}" != "${install_root}/${LAUNCHER_NAME}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation launcher_path mismatch: expected ${install_root}/${LAUNCHER_NAME}, found ${launcher_path}"
+  fi
+  if [[ ! -f "${launcher_path}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation missing launcher file: ${launcher_path}"
+  fi
+  if [[ ! -x "${launcher_path}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation launcher is not executable: ${launcher_path}"
+  fi
+  local actual_launcher_sha
+  actual_launcher_sha="$(sha256_of "${launcher_path}")"
+  if [[ "${actual_launcher_sha}" != "${EXPECTED_LAUNCHER_SHA256}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation launcher SHA-256 mismatch: expected ${EXPECTED_LAUNCHER_SHA256}, found ${actual_launcher_sha}"
+  fi
+  if ! bash -n -- "${launcher_path}"; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation launcher failed bash -n: ${launcher_path}"
+  fi
+
+  echo "LUMEN INSTALLATION ALREADY PRESENT"
+  echo "machine: ${existing_machine:-unknown}"
+  echo "checkpoint: ${EXPECTED_COMMIT_SHORT}"
+  echo "install root: ${install_root}"
+  echo "launcher: verified"
+  echo "No changes made."
+  exit 0
 }
 
 main() {
@@ -362,6 +444,8 @@ main() {
   require_cmd grep
   require_cmd mktemp
   require_cmd date
+  require_cmd bash
+  require_cmd chmod
 
   validate_machine_id "$1"
   resolve_script_path
@@ -395,6 +479,9 @@ main() {
     "${staging_work}/batch" \
     "${staging_work}/output" \
     "${staging_logs}"
+
+  echo "Installing portable launcher..."
+  stage_and_verify_launcher
 
   echo "Extracting Fiji..."
   extract_normalized_dir \
@@ -494,6 +581,7 @@ controller Java: verified
 Maven: verified
 classifier: verified
 source checkpoint: verified
+launcher: verified
 EOF
 }
 
