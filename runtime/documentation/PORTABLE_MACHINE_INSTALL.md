@@ -18,6 +18,12 @@ It also validates and installs the portable launcher as:
 $HOME/LumenRuntime/0c1c326/run_lumen_machine.sh
 ```
 
+and the read-only status monitor as:
+
+```text
+$HOME/LumenRuntime/0c1c326/monitor_lumen_machine.sh
+```
+
 It does **not** modify:
 
 - system Java
@@ -38,15 +44,17 @@ if someone later wants to restore the development repository from that bundle.
 
 ## Deployed layout on the drive
 
-`LumenPortable/install/` must contain both:
+`LumenPortable/install/` must contain:
 
 ```text
 LumenPortable/
   install/
     install_machine.sh
     run_lumen_machine.sh
+    monitor_lumen_machine.sh
     PORTABLE_MACHINE_INSTALL.md
     PORTABLE_MACHINE_RUN.md
+    PORTABLE_MACHINE_MONITOR.md
   canonical/
     ...
 ```
@@ -55,9 +63,10 @@ The installer discovers `LumenPortable` from its own script path. It does not
 hard-code host-specific mount points.
 
 Before changing the local machine, the installer requires
-`run_lumen_machine.sh` next to `install_machine.sh`, verifies its fixed
-SHA-256, copies it into the staged install root, marks it executable
-(`chmod 755`), and checks `bash -n` on the staged copy.
+`run_lumen_machine.sh` and `monitor_lumen_machine.sh` next to
+`install_machine.sh`, verifies each fixed SHA-256, copies them into the staged
+install root, marks them executable (`chmod 755`), and checks `bash -n` on the
+staged copies.
 
 ## Usage
 
@@ -91,7 +100,8 @@ child processing does not depend on the shell working directory or a
 development checkout.
 
 Installation itself still launches no precheck, classification, or
-reconstruction.
+reconstruction. Use `monitor_lumen_machine.sh` for a read-only status snapshot
+during later overnight runs (see `PORTABLE_MACHINE_MONITOR.md`).
 
 ## What the installer verifies
 
@@ -99,6 +109,7 @@ Before publishing the final directory it checks, among other things:
 
 - required canonical archives and classifier exist
 - portable launcher exists beside the installer and matches the fixed SHA-256
+- portable monitor exists beside the installer and matches the fixed SHA-256
 - extracted source tree contains required project files
   (`pom.xml`, batch scripts, key Java sources)
 - production checkpoint recorded as
@@ -110,16 +121,18 @@ Before publishing the final directory it checks, among other things:
 - portable Maven reports Java 21 using only the portable JDK
 - Maven repository is non-empty
 - staged launcher SHA-256 + `bash -n`
+- staged monitor SHA-256 + `bash -n`
 
 Installation is staged under `$HOME/LumenRuntime/.install_staging_0c1c326_<pid>`
 and moved atomically to `$HOME/LumenRuntime/0c1c326` only after all checks pass.
 
 If that exact install directory already exists and `installation.properties`
 matches this checkpoint **including** validated `launcher_path` /
-`launcher_sha256`, the script exits successfully without changing it.
+`launcher_sha256` and `monitor_path` / `monitor_sha256`, the script exits
+successfully without changing it.
 
-An older installation that predates launcher integration is **not** accepted or
-auto-upgraded; recreate it intentionally.
+An older installation that predates launcher or monitor integration is **not**
+accepted or auto-upgraded; recreate it intentionally.
 
 ## Intentionally not done yet
 
@@ -134,4 +147,5 @@ This installer does **not**:
 - launch precheck, classification, or reconstruction during install
 
 After install, use the pinned launcher for `--verify-only` /
-`--precheck-only` / `--full-only` as documented above.
+`--precheck-only` / `--full-only`, and the pinned monitor for read-only status
+snapshots, as documented above.
