@@ -75,14 +75,23 @@ After a successful install, the installed launcher supports:
 ```bash
 $HOME/LumenRuntime/0c1c326/run_lumen_machine.sh --verify-only
 $HOME/LumenRuntime/0c1c326/run_lumen_machine.sh --precheck-only
+$HOME/LumenRuntime/0c1c326/run_lumen_machine.sh --full-only <tile-profile-index>
 ```
 
 `--verify-only` validates the portable runtime and controller classes.
 
 `--precheck-only` requires a previously imported matching machine job and runs
 only the validated precheck stage. It does **not** automatically launch
-classification or reconstruction. Full overnight processing remains a later
-launcher phase.
+classification or reconstruction.
+
+`--full-only <tile-profile-index>` runs the existing `BatchMachineSupervisorCli`.
+Classification and reconstruction are supervisor-controlled. The controller
+classes directory is explicitly pinned inside the installed `LumenRuntime` so
+child processing does not depend on the shell working directory or a
+development checkout.
+
+Installation itself still launches no precheck, classification, or
+reconstruction.
 
 ## What the installer verifies
 
@@ -122,7 +131,7 @@ This installer does **not**:
 - create a batch manifest
 - require or invoke system Git
 - automatically launch classification or reconstruction
-- enable full overnight processing (later launcher phase)
+- launch precheck, classification, or reconstruction during install
 
-After install, use the pinned launcher for `--verify-only` / `--precheck-only`
-as documented above.
+After install, use the pinned launcher for `--verify-only` /
+`--precheck-only` / `--full-only` as documented above.

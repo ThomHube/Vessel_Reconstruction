@@ -7,6 +7,7 @@
 # Supported modes:
 #   ./run_lumen_machine.sh --verify-only
 #   ./run_lumen_machine.sh --precheck-only
+#   ./run_lumen_machine.sh --full-only <tile-profile-index>
 #
 # NOTE: Changing this file changes its SHA-256. The installer still pins the
 # previous launcher hash until a separate deployment bite updates it.
@@ -67,6 +68,7 @@ usage() {
 Usage:
   ./run_lumen_machine.sh --verify-only
   ./run_lumen_machine.sh --precheck-only
+  ./run_lumen_machine.sh --full-only <tile-profile-index>
 
 --verify-only
   Verify the portable LumenRuntime installation and offline controller classes.
@@ -75,6 +77,11 @@ Usage:
 --precheck-only
   Verify an imported machine job, then run BatchPrecheckSupervisorCli only.
   Classification and reconstruction are not enabled.
+
+--full-only <tile-profile-index>
+  Verify an imported machine job, then run BatchMachineSupervisorCli from the
+  current canonical state. Does not automatically run precheck. Tile profile
+  index is required (decimal integer >= 0); no silent default.
 EOF
 }
 
@@ -494,6 +501,18 @@ interpret_precheck_exit() {
   esac
 }
 
+interpret_full_exit() {
+  local code="$1"
+  case "${code}" in
+    0) echo "LUMEN FULL MACHINE RUN SUCCESS" ;;
+    10) echo "LUMEN FULL MACHINE RUN COMPLETED WITH BLOCKED IMAGES" ;;
+    11) echo "LUMEN FULL MACHINE RUN COMPLETED WITH FAILURES" ;;
+    2) echo "LUMEN FULL MACHINE RUN CONFIGURATION FAILURE" ;;
+    6) echo "LUMEN FULL MACHINE RUN UNEXPECTED FAILURE" ;;
+    *) echo "LUMEN FULL MACHINE RUN UNKNOWN EXIT" ;;
+  esac
+}
+
 run_verify_only() {
   prepare_runtime
 
@@ -556,9 +575,70 @@ EOF
   exit "${precheck_rc}"
 }
 
+run_full_only() {
+  local tile_profile_index="$1"
+
+  if [[ ! "${tile_profile_index}" =~ ^[0-9]+$ ]]; then
+    fail "${EXIT_USAGE}" \
+      "--full-only requires a decimal integer tile-profile-index >= 0 (got: ${tile_profile_index})"
+  fi
+
+  prepare_runtime
+  prepare_imported_job
+
+  local classes_dir fiji_launcher supervisor_rc progress_file summary_file
+  classes_dir="${PROP_project_root}/target/classes"
+  fiji_launcher="${PROP_fiji_root}/ImageJ-linux64"
+  require_file \
+    "${classes_dir}/vesselreconstruction/ellipse/BatchMachineSupervisorCli.class" \
+    "BatchMachineSupervisorCli.class"
+  require_executable "${fiji_launcher}" "Fiji launcher"
+  require_file "${PROP_classifier_path}" "classifier model"
+
+  progress_file="${JOB_BATCH}/machine_supervisor/${PROP_machine_id}/machine_progress.properties"
+  summary_file="${JOB_BATCH}/machine_supervisor/${PROP_machine_id}/machine_run_summary.csv"
+
+  cat <<EOF
+LUMEN FULL MACHINE RUN START
+machine: ${PROP_machine_id}
+job root: ${JOB_ROOT}
+input: ${JOB_INPUT}
+batch: ${JOB_BATCH}
+classifier: verified
+configuration: verified
+imported package: verified
+tile profile index: ${tile_profile_index}
+precheck automatically launched: NO
+machine supervisor: ENABLED
+classification/reconstruction: supervisor-controlled
+EOF
+
+  set +e
+  "${PROP_jdk_root}/bin/java" \
+    "-Dvesselreconstruction.classes.dir=${classes_dir}" \
+    -cp "${classes_dir}" \
+    vesselreconstruction.ellipse.BatchMachineSupervisorCli \
+    --input-root "${JOB_INPUT}" \
+    --batch-root "${JOB_BATCH}" \
+    --machine-id "${PROP_machine_id}" \
+    --config "${JOB_CONFIG}" \
+    --classifier "${PROP_classifier_path}" \
+    --fiji-launcher "${fiji_launcher}" \
+    --tile-profile-index "${tile_profile_index}"
+  supervisor_rc=$?
+  set -e
+
+  interpret_full_exit "${supervisor_rc}"
+  echo "machine: ${PROP_machine_id}"
+  echo "supervisor exit code: ${supervisor_rc}"
+  echo "progress file: ${progress_file}"
+  echo "summary file: ${summary_file}"
+  exit "${supervisor_rc}"
+}
+
 main() {
   if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
-    echo "ERROR: Do not source this script. Run: ./run_lumen_machine.sh --verify-only|--precheck-only" >&2
+    echo "ERROR: Do not source this script. Run: ./run_lumen_machine.sh --verify-only|--precheck-only|--full-only <tile-profile-index>" >&2
     return "${EXIT_USAGE}" 2>/dev/null || exit "${EXIT_USAGE}"
   fi
 
@@ -571,11 +651,14 @@ main() {
     run_precheck_only
   fi
 
+  if [[ "$#" -eq 2 && "$1" == "--full-only" ]]; then
+    run_full_only "$2"
+  fi
+
   usage
   echo >&2
   echo "ERROR: Unknown or unsupported arguments." >&2
-  echo "Classification/reconstruction orchestration is not enabled yet." >&2
-  exit "${EXIT_NOT_ENABLED}"
+  exit "${EXIT_USAGE}"
 }
 
 main "$@"
