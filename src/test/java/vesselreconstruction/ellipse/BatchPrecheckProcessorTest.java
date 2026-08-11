@@ -24,9 +24,9 @@ class BatchPrecheckProcessorTest {
     @Test
     void relativeToBatchProducesForwardSlashRelativePath() {
         final Path batchRoot = Paths.get("/tmp/batch-root").toAbsolutePath().normalize();
-        final Path absolute = batchRoot.resolve("precheck/machine_01/previews/010101__mask_preview.png");
+        final Path absolute = batchRoot.resolve("precheck/machine_01/previews/0101A1__mask_preview.png");
         final String relative = BatchPrecheckProcessor.relativeToBatch(batchRoot, absolute);
-        assertEquals("precheck/machine_01/previews/010101__mask_preview.png", relative.replace('\\', '/'));
+        assertEquals("precheck/machine_01/previews/0101A1__mask_preview.png", relative.replace('\\', '/'));
     }
 
     @Test
@@ -39,7 +39,7 @@ class BatchPrecheckProcessorTest {
     void processFailsFastForMissingSourceFile() throws Exception {
         final Path batchRoot = tempDir.resolve("batch").toAbsolutePath().normalize();
         Files.createDirectories(batchRoot);
-        final Path missing = tempDir.resolve("missing/010101.tif").toAbsolutePath().normalize();
+        final Path missing = tempDir.resolve("missing/0101A1.tif").toAbsolutePath().normalize();
         final Path configPath = batchRoot.resolve("batch.properties");
         final BatchConfiguration config = BatchConfiguration.fromMap(BatchTestConfigs.validMap());
         Files.write(configPath, config.canonicalText().getBytes(StandardCharsets.UTF_8));
@@ -47,10 +47,10 @@ class BatchPrecheckProcessorTest {
         // Job constructor does not require source to exist; fromMap does.
         final BatchPrecheckJob job = new BatchPrecheckJob(
                 1,
-                SixDigitSampleId.parse("010101"),
+                CoreSegmentId.parse("0101A1"),
                 "machine_01",
                 missing,
-                "010101.tif",
+                "0101A1.tif",
                 SHA64,
                 configPath,
                 config.sha256(),
@@ -67,7 +67,7 @@ class BatchPrecheckProcessorTest {
                 || result.status() == BatchPrecheckStatus.STALE_SOURCE
                 || result.status() == BatchPrecheckStatus.FAILED_OPEN_IMAGE
                 || result.status() == BatchPrecheckStatus.FAILED_UNEXPECTED);
-        assertEquals("010101", result.get(BatchPrecheckResult.KEY_IMAGE_ID));
+        assertEquals("0101A1", result.get(BatchPrecheckResult.KEY_IMAGE_ID));
     }
 
     @Test
@@ -96,7 +96,7 @@ class BatchPrecheckProcessorTest {
         Files.createDirectories(batchRoot);
         final Map<String, String> map = new LinkedHashMap<String, String>();
         map.put(BatchPrecheckJob.KEY_SCHEMA, "1");
-        map.put(BatchPrecheckJob.KEY_IMAGE_ID, "010101");
+        map.put(BatchPrecheckJob.KEY_IMAGE_ID, "0101A1");
         map.put(BatchPrecheckJob.KEY_MACHINE_ID, "machine_01");
         map.put(BatchPrecheckJob.KEY_SOURCE_PATH,
                 tempDir.resolve("no-such.tif").toAbsolutePath().normalize().toString());

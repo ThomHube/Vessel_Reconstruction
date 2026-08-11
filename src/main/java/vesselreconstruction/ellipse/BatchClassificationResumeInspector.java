@@ -75,15 +75,18 @@ public final class BatchClassificationResumeInspector {
         if (!layout.isAccessibleDirectory()) {
             return Inspection.notResumable("DATASET_ROOT_MISSING");
         }
-        final String safe;
+        final String safeSample;
+        final String safeSegment;
         try {
-            safe = FilenameSanitizer.sanitizeForFilename(imageId.trim());
+            final CoreSegmentId id = CoreSegmentId.parse(imageId.trim());
+            safeSample = FilenameSanitizer.sanitizeForFilename(id.sampleId());
+            safeSegment = FilenameSanitizer.sanitizeForFilename(id.segmentId());
         } catch (final RuntimeException ex) {
             return Inspection.notResumable("IMAGE_ID_UNSAFE");
         }
 
         final Path maskedClassifiedPath = layout.imagesMaskedClassified().resolve(
-                FilenameSanitizer.maskedClassifiedFilename(safe, safe));
+                FilenameSanitizer.maskedClassifiedFilename(safeSample, safeSegment));
         if (!Files.isRegularFile(maskedClassifiedPath)) {
             return Inspection.notResumable("MASKED_CLASSIFIED_MISSING");
         }
@@ -153,9 +156,11 @@ public final class BatchClassificationResumeInspector {
                 ProductionSchemas.IMAGE_MANIFEST_HEADER);
         final int sampleIdx = idx.get("sample_id").intValue();
         final int segmentIdx = idx.get("segment_id").intValue();
+        final CoreSegmentId expected = CoreSegmentId.parse(imageId);
         for (int r = 1; r < table.size(); r++) {
             final List<String> row = table.get(r);
-            if (imageId.equals(row.get(sampleIdx)) && imageId.equals(row.get(segmentIdx))) {
+            if (expected.sampleId().equals(row.get(sampleIdx))
+                    && expected.segmentId().equals(row.get(segmentIdx))) {
                 final Map<String, String> map = new java.util.HashMap<String, String>();
                 for (final Map.Entry<String, Integer> entry : idx.entrySet()) {
                     map.put(entry.getKey(), row.get(entry.getValue().intValue()));
@@ -182,9 +187,11 @@ public final class BatchClassificationResumeInspector {
             final int segmentIdx = idx.get("segment_id").intValue();
             final int stageIdx = idx.get("stage").intValue();
             final int statusIdx = idx.get("status").intValue();
+            final CoreSegmentId expected = CoreSegmentId.parse(imageId);
             for (int r = 1; r < table.size(); r++) {
                 final List<String> row = table.get(r);
-                if (!imageId.equals(row.get(sampleIdx)) || !imageId.equals(row.get(segmentIdx))) {
+                if (!expected.sampleId().equals(row.get(sampleIdx))
+                        || !expected.segmentId().equals(row.get(segmentIdx))) {
                     continue;
                 }
                 if (ProductionSchemas.ProcessingStage.TILED_CLASSIFICATION.name().equals(row.get(stageIdx))

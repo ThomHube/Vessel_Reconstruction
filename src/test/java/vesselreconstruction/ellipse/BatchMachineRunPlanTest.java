@@ -31,14 +31,14 @@ class BatchMachineRunPlanTest {
     @Test
     void progressUsesOnlyFullSuccess() {
         final BatchMachineRunPlan plan = BatchMachineRunPlan.of("machine_01", Arrays.asList(
-                image(1, "010101", BatchMachineImageState.FULL_SUCCESS),
-                image(2, "010102", BatchMachineImageState.CLASSIFICATION_COMPLETE),
-                image(3, "010201", BatchMachineImageState.READY_FOR_FULL_PROCESSING),
-                image(4, "010202", BatchMachineImageState.PRECHECK_MISSING),
-                image(5, "010301", BatchMachineImageState.PRECHECK_REVIEW_REQUIRED),
-                image(6, "010302", BatchMachineImageState.PRECHECK_FAILED),
-                image(7, "020101", BatchMachineImageState.CANONICAL_CONFLICT),
-                image(8, "020102", BatchMachineImageState.UNKNOWN_INVALID_STATE)));
+                image(1, "0101A1", BatchMachineImageState.FULL_SUCCESS),
+                image(2, "0101A2", BatchMachineImageState.CLASSIFICATION_COMPLETE),
+                image(3, "0102A1", BatchMachineImageState.READY_FOR_FULL_PROCESSING),
+                image(4, "0102A2", BatchMachineImageState.PRECHECK_MISSING),
+                image(5, "0103A1", BatchMachineImageState.PRECHECK_REVIEW_REQUIRED),
+                image(6, "0103A2", BatchMachineImageState.PRECHECK_FAILED),
+                image(7, "0201A1", BatchMachineImageState.CANONICAL_CONFLICT),
+                image(8, "0201A2", BatchMachineImageState.UNKNOWN_INVALID_STATE)));
 
         assertEquals(8, plan.assignedCount());
         assertEquals(1, plan.completedCount());

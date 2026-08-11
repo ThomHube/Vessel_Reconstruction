@@ -31,7 +31,7 @@ public final class BatchPrecheckProcessor {
             }
 
             try {
-                SixDigitSampleId.parse(
+                CoreSegmentId.parse(
                         job.sourcePath().getFileName().toString().replaceAll("(?i)\\.tiff?$", ""));
             } catch (final RuntimeException ex) {
                 return fail(job, config, BatchPrecheckStatus.INVALID_FILENAME,

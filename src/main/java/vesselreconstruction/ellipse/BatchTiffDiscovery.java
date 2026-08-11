@@ -15,7 +15,11 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Discovers and validates six-digit TIFF files under an input root.
+ * Discovers and validates production {@code PPTTCS} TIFF files under an input root.
+ *
+ * <p>There is no fixed expected image set: segment presence is data-dependent.
+ * The historical {@code input.require_complete_expected_set} flag is accepted for
+ * configuration compatibility but no longer enforces a closed ID list.</p>
  */
 public final class BatchTiffDiscovery {
 
@@ -24,7 +28,7 @@ public final class BatchTiffDiscovery {
         private final List<String> malformedTiffLikeFiles;
         private final List<String> nonTiffFiles;
         private final List<String> duplicateIds;
-        private final List<SixDigitSampleId> missingExpectedIds;
+        private final List<CoreSegmentId> missingExpectedIds;
         private final List<String> unexpectedIds;
 
         public Result(
@@ -32,7 +36,7 @@ public final class BatchTiffDiscovery {
                 final List<String> malformedTiffLikeFiles,
                 final List<String> nonTiffFiles,
                 final List<String> duplicateIds,
-                final List<SixDigitSampleId> missingExpectedIds,
+                final List<CoreSegmentId> missingExpectedIds,
                 final List<String> unexpectedIds) {
             this.validTiffs = Collections.unmodifiableList(
                     new ArrayList<BatchTiffFile>(validTiffs));
@@ -43,7 +47,7 @@ public final class BatchTiffDiscovery {
             this.duplicateIds = Collections.unmodifiableList(
                     new ArrayList<String>(duplicateIds));
             this.missingExpectedIds = Collections.unmodifiableList(
-                    new ArrayList<SixDigitSampleId>(missingExpectedIds));
+                    new ArrayList<CoreSegmentId>(missingExpectedIds));
             this.unexpectedIds = Collections.unmodifiableList(
                     new ArrayList<String>(unexpectedIds));
         }
@@ -64,7 +68,10 @@ public final class BatchTiffDiscovery {
             return duplicateIds;
         }
 
-        public List<SixDigitSampleId> missingExpectedIds() {
+        /**
+         * Always empty under the production core/segment model (no fixed expected set).
+         */
+        public List<CoreSegmentId> missingExpectedIds() {
             return missingExpectedIds;
         }
 
@@ -91,6 +98,12 @@ public final class BatchTiffDiscovery {
         if (!Files.isDirectory(root)) {
             throw new IllegalArgumentException(
                     "inputRoot must exist and be a directory: " + root);
+        }
+        // requireCompleteExpectedSet is intentionally unused: a fixed complete image
+        // set is incompatible with variable segment counts per core. Callers that set
+        // the flag true are rejected by BatchManifestPlanner.
+        if (requireCompleteExpectedSet) {
+            // Keep parameter for API compatibility; planner owns the hard failure.
         }
 
         final List<Path> candidates = new ArrayList<Path>();
@@ -171,29 +184,17 @@ public final class BatchTiffDiscovery {
         for (int i = 0; i < valid.size(); i++) {
             present.add(valid.get(i).id().imageId());
         }
-        final List<SixDigitSampleId> expected = SixDigitSampleId.expectedCompleteSet();
-        final List<SixDigitSampleId> missing = new ArrayList<SixDigitSampleId>();
-        for (int i = 0; i < expected.size(); i++) {
-            final SixDigitSampleId id = expected.get(i);
-            if (!present.contains(id.imageId())) {
-                missing.add(id);
-            }
-        }
         final List<String> unexpected = new ArrayList<String>();
-        // Valid parse already constrains IDs; keep explicit empty/unexpected model.
         for (final String id : present) {
             try {
-                SixDigitSampleId.parse(id);
+                CoreSegmentId.parse(id);
             } catch (final IllegalArgumentException ex) {
                 unexpected.add(id);
             }
         }
         Collections.sort(unexpected);
 
-        if (requireCompleteExpectedSet && !missing.isEmpty()) {
-            // Reported in result; planner aborts using this list.
-        }
-
+        final List<CoreSegmentId> missing = Collections.emptyList();
         return new Result(valid, malformed, nonTiff, duplicates, missing, unexpected);
     }
 

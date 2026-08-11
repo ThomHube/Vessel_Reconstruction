@@ -408,6 +408,10 @@ public class BatchFullProcessingService {
 
             // 5. Tiled Weka classification configuration.
             final String imageId = job.imageId().imageId();
+            final CoreSegmentId coreSegmentId = job.imageId();
+            final String sampleId = coreSegmentId.sampleId();
+            final String segmentId = coreSegmentId.segmentId();
+            final int segmentOrder = coreSegmentId.segmentOrder();
             final TiledWekaClassificationConfiguration twConfig =
                     new TiledWekaClassificationConfiguration(
                             job.tileProfile().widthPx(),
@@ -423,9 +427,9 @@ public class BatchFullProcessingService {
                             true,
                             true,
                             true,
-                            imageId,
-                            imageId,
-                            1,
+                            sampleId,
+                            segmentId,
+                            segmentOrder,
                             SegmentOrientation.UNSPECIFIED,
                             null,
                             job.datasetRoot().toFile(),
@@ -588,16 +592,19 @@ public class BatchFullProcessingService {
                 return fail(job, config, flags, BatchFullProcessingStatus.FAILED_RECONSTRUCTION,
                         "DATASET_ROOT_MISSING", "dataset root missing: " + job.datasetRoot(), started);
             }
-            final String safe;
+            final String safeSample;
+            final String safeSegment;
             try {
-                safe = FilenameSanitizer.sanitizeForFilename(imageId);
+                final CoreSegmentId parsedId = CoreSegmentId.parse(imageId);
+                safeSample = FilenameSanitizer.sanitizeForFilename(parsedId.sampleId());
+                safeSegment = FilenameSanitizer.sanitizeForFilename(parsedId.segmentId());
             } catch (final RuntimeException ex) {
                 return fail(job, config, flags, BatchFullProcessingStatus.INVALID_JOB,
                         "IMAGE_ID_UNSAFE", ex.getMessage(), started);
             }
 
             final Path maskedClassifiedPath = layout.imagesMaskedClassified().resolve(
-                    FilenameSanitizer.maskedClassifiedFilename(safe, safe));
+                    FilenameSanitizer.maskedClassifiedFilename(safeSample, safeSegment));
             if (!Files.isRegularFile(maskedClassifiedPath)) {
                 return fail(job, config, flags, BatchFullProcessingStatus.FAILED_RECONSTRUCTION,
                         "MASKED_CLASSIFIED_MISSING",
@@ -661,13 +668,17 @@ public class BatchFullProcessingService {
             }
             final LumenImageMetadata metadata = parsedMetadata.getMetadata().get();
             try {
-                final String sampleId = metadata.getRequired(LumenImageMetadata.KEY_SAMPLE_ID);
-                final String segmentId = metadata.getRequired(LumenImageMetadata.KEY_SEGMENT_ID);
-                if (!imageId.equals(sampleId) || !imageId.equals(segmentId)) {
+                final String metaSampleId = metadata.getRequired(LumenImageMetadata.KEY_SAMPLE_ID);
+                final String metaSegmentId = metadata.getRequired(LumenImageMetadata.KEY_SEGMENT_ID);
+                final CoreSegmentId expectedId = CoreSegmentId.parse(imageId);
+                if (!expectedId.sampleId().equals(metaSampleId)
+                        || !expectedId.segmentId().equals(metaSegmentId)) {
                     return fail(job, config, flags, BatchFullProcessingStatus.FAILED_RECONSTRUCTION,
                             "MASKED_CLASSIFIED_IDENTITY_MISMATCH",
-                            "masked classified sample/segment ids are " + sampleId + "/" + segmentId
-                                    + ", expected " + imageId + "/" + imageId, started);
+                            "masked classified sample/segment ids are " + metaSampleId + "/"
+                                    + metaSegmentId
+                                    + ", expected " + expectedId.sampleId() + "/"
+                                    + expectedId.segmentId(), started);
                 }
                 final int originalWidth = metadata.getIntRequired(
                         LumenImageMetadata.KEY_ORIGINAL_WIDTH_PX);
@@ -880,9 +891,13 @@ public class BatchFullProcessingService {
                 ProductionSchemas.IMAGE_MANIFEST_HEADER);
         final int sampleIdx = idx.get("sample_id").intValue();
         final int segmentIdx = idx.get("segment_id").intValue();
+        final CoreSegmentId expectedId = CoreSegmentId.parse(imageId);
+        final String expectedSample = expectedId.sampleId();
+        final String expectedSegment = expectedId.segmentId();
         for (int r = 1; r < table.size(); r++) {
             final List<String> row = table.get(r);
-            if (imageId.equals(row.get(sampleIdx)) && imageId.equals(row.get(segmentIdx))) {
+            if (expectedSample.equals(row.get(sampleIdx))
+                    && expectedSegment.equals(row.get(segmentIdx))) {
                 final Map<String, String> map = new HashMap<String, String>();
                 for (final Map.Entry<String, Integer> entry : idx.entrySet()) {
                     map.put(entry.getKey(), row.get(entry.getValue().intValue()));

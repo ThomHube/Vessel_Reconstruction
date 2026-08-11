@@ -440,20 +440,20 @@ class BatchFullProcessingServiceTest {
         final Path input = tempDir.resolve("input").toAbsolutePath().normalize();
         Files.createDirectories(batchRoot);
         Files.createDirectories(input);
-        final Path source = input.resolve("010101.tif");
+        final Path source = input.resolve("0101A1.tif");
         Files.write(source, "tiff-bytes".getBytes());
         final Path classifier = input.resolve("classifier.model");
         Files.write(classifier, "model-bytes".getBytes());
         final Path datasetRoot = tempDir.resolve("dataset").toAbsolutePath().normalize();
         Files.createDirectories(datasetRoot);
-        final Path fullRoot = batchRoot.resolve("full/machine_01/010101/attempt_1");
+        final Path fullRoot = batchRoot.resolve("full/machine_01/0101A1/attempt_1");
 
         return new BatchFullProcessingJob(
                 1,
-                SixDigitSampleId.parse("010101"),
+                CoreSegmentId.parse("0101A1"),
                 "machine_01",
                 source,
-                "010101.tif",
+                "0101A1.tif",
                 SOURCE_SHA,
                 batchRoot.resolve("batch.properties"),
                 configurationSha256,
@@ -464,7 +464,7 @@ class BatchFullProcessingServiceTest {
                 1,
                 batchRoot,
                 datasetRoot,
-                batchRoot.resolve("precheck/machine_01/jobs/010101/result.properties"),
+                batchRoot.resolve("precheck/machine_01/jobs/0101A1/result.properties"),
                 batchRoot.resolve("precheck/machine_01/precheck_results.csv"),
                 fullRoot.resolve("result.properties"),
                 fullRoot.resolve("stdout.log"),
@@ -480,7 +480,7 @@ class BatchFullProcessingServiceTest {
                 .toAbsolutePath().normalize();
         Files.createDirectories(batchRoot);
         Files.createDirectories(input);
-        final Path source = input.resolve("010101.tif");
+        final Path source = input.resolve("0101A1.tif");
         Files.write(source, "tiff-bytes".getBytes());
         final Path classifier;
         if (createClassifier) {
@@ -491,14 +491,14 @@ class BatchFullProcessingServiceTest {
         }
         final Path datasetRoot = tempDir.resolve("dataset-recon-" + createClassifier)
                 .toAbsolutePath().normalize();
-        final Path fullRoot = batchRoot.resolve("full/machine_01/010101/attempt_1/reconstruction");
+        final Path fullRoot = batchRoot.resolve("full/machine_01/0101A1/attempt_1/reconstruction");
 
         return new BatchFullProcessingJob(
                 1,
-                SixDigitSampleId.parse("010101"),
+                CoreSegmentId.parse("0101A1"),
                 "machine_01",
                 source,
-                "010101.tif",
+                "0101A1.tif",
                 SOURCE_SHA,
                 batchRoot.resolve("batch.properties"),
                 configurationSha256,
@@ -509,7 +509,7 @@ class BatchFullProcessingServiceTest {
                 1,
                 batchRoot,
                 datasetRoot,
-                batchRoot.resolve("precheck/machine_01/jobs/010101/result.properties"),
+                batchRoot.resolve("precheck/machine_01/jobs/0101A1/result.properties"),
                 batchRoot.resolve("precheck/machine_01/precheck_results.csv"),
                 fullRoot.resolve("result.properties"),
                 fullRoot.resolve("stdout.log"),
@@ -528,8 +528,8 @@ class BatchFullProcessingServiceTest {
                 .reasonCode(status.isSuccess() ? "NA" : "FIXTURE_REASON")
                 .imageId(job.imageId().imageId())
                 .machineId(job.machineId())
-                .sourceFilename("010101.tif")
-                .sourceRelativePath("010101.tif")
+                .sourceFilename("0101A1.tif")
+                .sourceRelativePath("0101A1.tif")
                 .sourceSha256(sourceSha256)
                 .configurationSha256(configurationSha256)
                 .imageSize(1000, 800)

@@ -28,29 +28,29 @@ class BatchPrecheckJobTest {
         final Path input = tempDir.resolve("input");
         Files.createDirectories(batchRoot);
         Files.createDirectories(input);
-        final Path source = input.resolve("010101.tif");
+        final Path source = input.resolve("0101A1.tif");
         Files.write(source, "tiff-bytes".getBytes(StandardCharsets.UTF_8));
         final String sourceSha = Sha256Files.sha256OfFile(source);
         final Path config = batchRoot.resolve("batch.properties");
         Files.write(config, BatchTestConfigs.validPropertiesText().getBytes(StandardCharsets.UTF_8));
 
-        final Path jobPath = batchRoot.resolve("precheck/machine_01/jobs/010101/job.properties");
+        final Path jobPath = batchRoot.resolve("precheck/machine_01/jobs/0101A1/job.properties");
         Files.createDirectories(jobPath.getParent());
         final BatchPrecheckJob original = new BatchPrecheckJob(
                 1,
-                SixDigitSampleId.parse("010101"),
+                CoreSegmentId.parse("0101A1"),
                 "machine_01",
                 source.toAbsolutePath().normalize(),
-                "010101.tif",
+                "0101A1.tif",
                 sourceSha,
                 config.toAbsolutePath().normalize(),
                 SHA64,
                 batchRoot,
-                batchRoot.resolve("precheck/machine_01/jobs/010101/result.properties"),
-                batchRoot.resolve("precheck/machine_01/logs/010101__stdout.log"),
-                batchRoot.resolve("precheck/machine_01/logs/010101__stderr.log"),
-                batchRoot.resolve("precheck/machine_01/previews/010101__mask_preview.png"),
-                batchRoot.resolve("precheck/machine_01/previews/010101__scale_bar_preview.png"));
+                batchRoot.resolve("precheck/machine_01/jobs/0101A1/result.properties"),
+                batchRoot.resolve("precheck/machine_01/logs/0101A1__stdout.log"),
+                batchRoot.resolve("precheck/machine_01/logs/0101A1__stderr.log"),
+                batchRoot.resolve("precheck/machine_01/previews/0101A1__mask_preview.png"),
+                batchRoot.resolve("precheck/machine_01/previews/0101A1__scale_bar_preview.png"));
         original.write(jobPath);
 
         final BatchPrecheckJob loaded = BatchPrecheckJob.load(jobPath);
@@ -105,14 +105,14 @@ class BatchPrecheckJobTest {
         final Path input = tempDir.resolve("input-map");
         Files.createDirectories(batchRoot);
         Files.createDirectories(input);
-        final Path source = input.resolve("010102.tif");
+        final Path source = input.resolve("0101A2.tif");
         Files.write(source, "bytes".getBytes(StandardCharsets.UTF_8));
         final Map<String, String> map = new LinkedHashMap<String, String>();
         map.put(BatchPrecheckJob.KEY_SCHEMA, "1");
-        map.put(BatchPrecheckJob.KEY_IMAGE_ID, "010102");
+        map.put(BatchPrecheckJob.KEY_IMAGE_ID, "0101A2");
         map.put(BatchPrecheckJob.KEY_MACHINE_ID, "machine_01");
         map.put(BatchPrecheckJob.KEY_SOURCE_PATH, source.toAbsolutePath().normalize().toString());
-        map.put(BatchPrecheckJob.KEY_SOURCE_RELATIVE, "010102.tif");
+        map.put(BatchPrecheckJob.KEY_SOURCE_RELATIVE, "0101A2.tif");
         map.put(BatchPrecheckJob.KEY_SOURCE_SHA256, Sha256Files.sha256OfFile(source));
         map.put(BatchPrecheckJob.KEY_CONFIG_PATH,
                 batchRoot.resolve("cfg.properties").toAbsolutePath().normalize().toString());

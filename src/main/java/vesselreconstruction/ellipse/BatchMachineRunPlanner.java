@@ -95,8 +95,8 @@ public final class BatchMachineRunPlanner {
             public int compare(
                     final BatchPrecheckSupervisor.ManifestRow a,
                     final BatchPrecheckSupervisor.ManifestRow b) {
-                return SixDigitSampleId.parse(a.imageId)
-                        .compareTo(SixDigitSampleId.parse(b.imageId));
+                return CoreSegmentId.parse(a.imageId)
+                        .compareTo(CoreSegmentId.parse(b.imageId));
             }
         });
 
@@ -130,7 +130,7 @@ public final class BatchMachineRunPlanner {
         final Set<String> seenSources = new HashSet<String>();
         for (int i = 0; i < rows.size(); i++) {
             final BatchPrecheckSupervisor.ManifestRow row = rows.get(i);
-            final SixDigitSampleId id = SixDigitSampleId.parse(row.imageId);
+            final CoreSegmentId id = CoreSegmentId.parse(row.imageId);
             if (!seenIds.add(id.imageId())) {
                 throw new IllegalArgumentException("duplicate image ID: " + id.imageId());
             }

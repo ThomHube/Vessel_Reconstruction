@@ -23,10 +23,10 @@ class BatchPrecheckResultTest {
                 .status(BatchPrecheckStatus.PRECHECK_SUCCESS)
                 .message("ok")
                 .reasonCode(RCsvSupport.NA)
-                .imageId("010101")
+                .imageId("0101A1")
                 .machineId("machine_01")
-                .sourceFilename("010101.tif")
-                .sourceRelativePath("010101.tif")
+                .sourceFilename("0101A1.tif")
+                .sourceRelativePath("0101A1.tif")
                 .sourceSha256(SHA64)
                 .configurationSha256(SHA64)
                 .imageSize(100, 80)
@@ -56,10 +56,10 @@ class BatchPrecheckResultTest {
 
         final BatchPrecheckResult result = BatchPrecheckResult.builder()
                 .status(BatchPrecheckStatus.REVIEW_REQUIRED_MASK)
-                .imageId("010101")
+                .imageId("0101A1")
                 .machineId("machine_01")
-                .sourceFilename("010101.tif")
-                .sourceRelativePath("010101.tif")
+                .sourceFilename("0101A1.tif")
+                .sourceRelativePath("0101A1.tif")
                 .sourceSha256(SHA64)
                 .configurationSha256(SHA64)
                 .maskStats(null, null, Double.NaN, Double.POSITIVE_INFINITY,
@@ -83,7 +83,7 @@ class BatchPrecheckResultTest {
     void statusParseViaFromMap() {
         final BatchPrecheckResult ok = BatchPrecheckResult.builder()
                 .status(BatchPrecheckStatus.FAILED_TIMEOUT)
-                .imageId("010101")
+                .imageId("0101A1")
                 .machineId("machine_01")
                 .build();
         assertEquals(BatchPrecheckStatus.FAILED_TIMEOUT, ok.status());

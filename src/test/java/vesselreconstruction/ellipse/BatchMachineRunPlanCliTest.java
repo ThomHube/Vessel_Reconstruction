@@ -36,18 +36,18 @@ class BatchMachineRunPlanCliTest {
         Files.write(configPath, BatchTestConfigs.validPropertiesText().getBytes(StandardCharsets.UTF_8));
         final BatchConfiguration config = BatchConfiguration.load(configPath);
 
-        for (final String imageId : Arrays.asList("010102", "010101")) {
+        for (final String imageId : Arrays.asList("0101A2", "0101A1")) {
             Files.write(inputRoot.resolve(imageId + ".tif"),
                     ("tiff-" + imageId).getBytes(StandardCharsets.UTF_8));
         }
-        writeManifest(batchRoot, config, Arrays.asList("010102", "010101"), inputRoot);
-        writePrecheck(batchRoot, config, inputRoot, "010101", BatchPrecheckStatus.PRECHECK_SUCCESS);
-        // 010102 missing precheck
+        writeManifest(batchRoot, config, Arrays.asList("0101A2", "0101A1"), inputRoot);
+        writePrecheck(batchRoot, config, inputRoot, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        // 0101A2 missing precheck
 
         final Path datasetRoot = batchRoot.resolve(
                 BatchManifestSchema.datasetShardRelativePath(MACHINE_ID));
         BatchProductionOutputValidatorTest.seedCompleteDataset(
-                datasetRoot, Files.readAllBytes(inputRoot.resolve("010101.tif")));
+                datasetRoot, Files.readAllBytes(inputRoot.resolve("0101A1.tif")));
 
         final String[] args = new String[] {
                 "--input-root", inputRoot.toString(),
@@ -74,8 +74,8 @@ class BatchMachineRunPlanCliTest {
         assertTrue(text.contains("FULL_SUCCESS: 1"));
         assertTrue(text.contains("PRECHECK_MISSING: 1"));
         assertTrue(text.contains("planned processing remaining: 1"));
-        final int idx101 = text.indexOf("010101");
-        final int idx102 = text.indexOf("010102");
+        final int idx101 = text.indexOf("0101A1");
+        final int idx102 = text.indexOf("0101A2");
         assertTrue(idx101 >= 0 && idx102 >= 0 && idx101 < idx102, text);
         assertTrue(text.contains("SKIP_COMPLETE"));
         assertTrue(text.contains("RUN_PRECHECK"));
@@ -120,9 +120,11 @@ class BatchMachineRunPlanCliTest {
         for (int i = 0; i < imageIds.size(); i++) {
             final String imageId = imageIds.get(i);
             final String sha = Sha256Files.sha256OfFile(inputRoot.resolve(imageId + ".tif"));
-            final SixDigitSampleId id = SixDigitSampleId.parse(imageId);
+            final CoreSegmentId id = CoreSegmentId.parse(imageId);
             rows.add(Arrays.asList(
-                    "1", Integer.toString(i + 1), imageId, id.plotId(), id.treeId(), id.replicateId(),
+                    Integer.toString(BatchManifestSchema.SCHEMA_VERSION),
+                    Integer.toString(i + 1), imageId, id.plotId(), id.treeId(),
+                    String.valueOf(id.coreLabel()), id.coreId(), Integer.toString(id.segmentOrder()),
                     imageId + ".tif", imageId + ".tif", sha, "10",
                     MACHINE_ID, "0", "PENDING", "0", "NA", "NA", "NA", "NA",
                     "0", BatchManifestSchema.datasetShardRelativePath(MACHINE_ID), config.sha256()));

@@ -11,9 +11,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Post-hoc validation of Phase-3 production outputs for a single image, where
- * {@code sample_id == segment_id == imageId}. Read-only; never mutates the
- * dataset.
+ * Post-hoc validation of Phase-3 production outputs for a single image.
+ *
+ * <p>Identity model: {@code sample_id == core_id}, {@code segment_id == image_id},
+ * with {@code segment_order} from {@link CoreSegmentId}.</p>
  */
 public final class BatchProductionOutputValidator {
 
@@ -191,9 +192,11 @@ public final class BatchProductionOutputValidator {
         }
 
         final String trimmedId = imageId.trim();
-        final String safe;
+        final String safeSample;
+        final String safeSegment;
         try {
-            safe = FilenameSanitizer.sanitizeForFilename(trimmedId);
+            safeSample = sanitizeSample(trimmedId);
+            safeSegment = sanitizeSegment(trimmedId);
         } catch (final RuntimeException ex) {
             return incomplete(FinalizedDatasetState.CLASSIFICATION_INCOMPLETE,
                     "IMAGE_ID_UNSAFE",
@@ -202,7 +205,7 @@ public final class BatchProductionOutputValidator {
         }
 
         final Path originalRgb = layout.imagesOriginalRgb().resolve(
-                FilenameSanitizer.originalRgbFilename(safe, safe));
+                FilenameSanitizer.originalRgbFilename(safeSample, safeSegment));
         if (Files.isRegularFile(originalRgb) && sourceSha256 != null && !sourceSha256.trim().isEmpty()) {
             try {
                 final String actual = Sha256Files.sha256OfFile(originalRgb);
@@ -219,13 +222,13 @@ public final class BatchProductionOutputValidator {
         }
 
         final List<String> classificationFailures = new ArrayList<String>();
-        checkImages(layout, safe, sourceSha256, false, classificationFailures);
+        checkImages(layout, safeSample, safeSegment, sourceSha256, false, classificationFailures);
         checkImageManifest(layout, trimmedId, false, classificationFailures);
         checkSegmentManifest(layout, trimmedId, classificationFailures);
         checkProcessingRuns(layout, trimmedId, false, classificationFailures);
         checkClassificationManifestDetails(
-                layout, trimmedId, safe, classifierSha256, classificationFailures);
-        checkPathsUnderRoot(layout, safe, false, classificationFailures);
+                layout, trimmedId, safeSample, safeSegment, classifierSha256, classificationFailures);
+        checkPathsUnderRoot(layout, safeSample, safeSegment, false, classificationFailures);
 
         if (!classificationFailures.isEmpty()) {
             failures.addAll(classificationFailures);
@@ -234,24 +237,24 @@ public final class BatchProductionOutputValidator {
         }
 
         final List<String> reconstructionFailures = new ArrayList<String>();
-        checkImages(layout, safe, sourceSha256, true, reconstructionFailures);
+        checkImages(layout, safeSample, safeSegment, sourceSha256, true, reconstructionFailures);
         // Drop original/mask/masked checks already known-good; keep only recon-specific
         // by re-running the reconstruction-focused helpers instead of full checkImages.
         reconstructionFailures.clear();
         final Path reconstructed = layout.imagesReconstructedClassified().resolve(
-                FilenameSanitizer.reconstructedClassifiedFilename(safe, safe));
+                FilenameSanitizer.reconstructedClassifiedFilename(safeSample, safeSegment));
         checkFileExists(reconstructed, "reconstructed_classified", reconstructionFailures);
 
         checkImageManifest(layout, trimmedId, true, reconstructionFailures);
         checkProcessingRuns(layout, trimmedId, true, reconstructionFailures);
-        checkLumenMeasurements(layout, safe, reconstructionFailures);
-        checkDiagnostics(layout, safe, reconstructionFailures);
+        checkLumenMeasurements(layout, safeSample, safeSegment, reconstructionFailures);
+        checkDiagnostics(layout, safeSample, safeSegment, reconstructionFailures);
         if (requireAggregateTables) {
             checkAggregateTables(layout, reconstructionFailures);
         }
         final ReconstructionRowDetails reconDetails = checkReconstructionRunDetails(
-                layout, trimmedId, safe, minimumLumenAreaPx, reconstructionFailures);
-        checkPathsUnderRoot(layout, safe, true, reconstructionFailures);
+                layout, trimmedId, safeSample, safeSegment, minimumLumenAreaPx, reconstructionFailures);
+        checkPathsUnderRoot(layout, safeSample, safeSegment, true, reconstructionFailures);
 
         if (!reconstructionFailures.isEmpty()) {
             return incomplete(
@@ -262,7 +265,7 @@ public final class BatchProductionOutputValidator {
         final Map<String, String> imageRow = readImageManifestRowMap(layout, trimmedId);
         final String classificationRunId = imageRow == null ? null : imageRow.get("classification_run_id");
         final String reconstructionRunId = imageRow == null ? null : imageRow.get("reconstruction_run_id");
-        final Path approvedMask = findApprovedMask(layout, safe);
+        final Path approvedMask = findApprovedMask(layout, safeSample, safeSegment);
 
         return new FinalizedDatasetInspection(
                 FinalizedDatasetState.FINAL_DATASET_COMPLETE,
@@ -278,14 +281,14 @@ public final class BatchProductionOutputValidator {
                 relativize(layout.getDatasetRoot(), originalRgb),
                 approvedMask == null ? null : relativize(layout.getDatasetRoot(), approvedMask),
                 relativize(layout.getDatasetRoot(), layout.imagesMaskedRgb().resolve(
-                        FilenameSanitizer.maskedRgbFilename(safe, safe))),
+                        FilenameSanitizer.maskedRgbFilename(safeSample, safeSegment))),
                 relativize(layout.getDatasetRoot(), layout.imagesMaskedClassified().resolve(
-                        FilenameSanitizer.maskedClassifiedFilename(safe, safe))),
+                        FilenameSanitizer.maskedClassifiedFilename(safeSample, safeSegment))),
                 relativize(layout.getDatasetRoot(), reconstructed),
                 relativize(layout.getDatasetRoot(), layout.dataLumenMeasurementsPerSegment().resolve(
-                        FilenameSanitizer.lumenMeasurementsFilename(safe, safe))),
+                        FilenameSanitizer.lumenMeasurementsFilename(safeSample, safeSegment))),
                 relativize(layout.getDatasetRoot(), layout.dataDiagnosticsPerSegment().resolve(
-                        FilenameSanitizer.artifactDiagnosticsFilename(safe, safe))),
+                        FilenameSanitizer.artifactDiagnosticsFilename(safeSample, safeSegment))),
                 relativize(layout.getDatasetRoot(), layout.imageManifest()),
                 relativize(layout.getDatasetRoot(), layout.segmentManifest()),
                 relativize(layout.getDatasetRoot(), layout.processingRuns()));
@@ -361,21 +364,23 @@ public final class BatchProductionOutputValidator {
             failures.add("dataset root is not an accessible directory: " + datasetRoot);
             return ValidationResult.of(failures);
         }
-        final String safe;
+        final String safeSample;
+        final String safeSegment;
         try {
-            safe = FilenameSanitizer.sanitizeForFilename(imageId.trim());
+            safeSample = sanitizeSample(imageId.trim());
+            safeSegment = sanitizeSegment(imageId.trim());
         } catch (final RuntimeException ex) {
             failures.add("imageId cannot be sanitized for filenames: " + ex.getMessage());
             return ValidationResult.of(failures);
         }
 
-        checkImages(layout, safe, sourceSha256, requireReconstruction, failures);
+        checkImages(layout, safeSample, safeSegment, sourceSha256, requireReconstruction, failures);
         checkImageManifest(layout, imageId.trim(), requireReconstruction, failures);
         checkSegmentManifest(layout, imageId.trim(), failures);
         checkProcessingRuns(layout, imageId.trim(), requireReconstruction, failures);
         if (requireReconstruction) {
-            checkLumenMeasurements(layout, safe, failures);
-            checkDiagnostics(layout, safe, failures);
+            checkLumenMeasurements(layout, safeSample, safeSegment, failures);
+            checkDiagnostics(layout, safeSample, safeSegment, failures);
         }
 
         return ValidationResult.of(failures);
@@ -383,12 +388,13 @@ public final class BatchProductionOutputValidator {
 
     private static void checkImages(
             final ProductionDatasetLayout layout,
-            final String safe,
+            final String safeSample,
+            final String safeSegment,
             final String sourceSha256,
             final boolean requireReconstruction,
             final List<String> failures) {
         final Path originalRgb = layout.imagesOriginalRgb().resolve(
-                FilenameSanitizer.originalRgbFilename(safe, safe));
+                FilenameSanitizer.originalRgbFilename(safeSample, safeSegment));
         if (!checkFileExists(originalRgb, "original_rgb", failures)) {
             // nothing further to compare
         } else if (sourceSha256 != null && !sourceSha256.trim().isEmpty()) {
@@ -403,21 +409,21 @@ public final class BatchProductionOutputValidator {
             }
         }
 
-        if (!approvedMaskExists(layout, safe)) {
+        if (!approvedMaskExists(layout, safeSample, safeSegment)) {
             failures.add("approved mask missing under " + layout.imagesApprovedMasks());
         }
 
         final Path maskedRgb = layout.imagesMaskedRgb().resolve(
-                FilenameSanitizer.maskedRgbFilename(safe, safe));
+                FilenameSanitizer.maskedRgbFilename(safeSample, safeSegment));
         checkFileExists(maskedRgb, "masked_rgb", failures);
 
         final Path maskedClassified = layout.imagesMaskedClassified().resolve(
-                FilenameSanitizer.maskedClassifiedFilename(safe, safe));
+                FilenameSanitizer.maskedClassifiedFilename(safeSample, safeSegment));
         checkFileExists(maskedClassified, "masked_classified", failures);
 
         if (requireReconstruction) {
             final Path reconstructed = layout.imagesReconstructedClassified().resolve(
-                    FilenameSanitizer.reconstructedClassifiedFilename(safe, safe));
+                    FilenameSanitizer.reconstructedClassifiedFilename(safeSample, safeSegment));
             checkFileExists(reconstructed, "reconstructed_classified", failures);
         }
     }
@@ -425,7 +431,8 @@ public final class BatchProductionOutputValidator {
     private static void checkClassificationManifestDetails(
             final ProductionDatasetLayout layout,
             final String imageId,
-            final String safe,
+            final String safeSample,
+            final String safeSegment,
             final String classifierSha256,
             final List<String> failures) {
         final Map<String, String> row = readImageManifestRowMap(layout, imageId);
@@ -439,7 +446,7 @@ public final class BatchProductionOutputValidator {
 
         final String maskedClassifiedFilename = row.get("masked_classified_filename");
         final String expectedMaskedClassified =
-                FilenameSanitizer.maskedClassifiedFilename(safe, safe);
+                FilenameSanitizer.maskedClassifiedFilename(safeSample, safeSegment);
         if (maskedClassifiedFilename == null
                 || RCsvSupport.NA.equals(maskedClassifiedFilename.trim())
                 || !expectedMaskedClassified.equals(maskedClassifiedFilename.trim())) {
@@ -487,7 +494,8 @@ public final class BatchProductionOutputValidator {
             }
             final String sampleId = classRun.get(idx.get("sample_id").intValue());
             final String segmentId = classRun.get(idx.get("segment_id").intValue());
-            if (!imageId.equals(sampleId) || !imageId.equals(segmentId)) {
+            final CoreSegmentId expected = CoreSegmentId.parse(imageId);
+            if (!expected.sampleId().equals(sampleId) || !expected.segmentId().equals(segmentId)) {
                 failures.add("classification processing-run sample/segment mismatch");
             }
         }
@@ -517,7 +525,8 @@ public final class BatchProductionOutputValidator {
     private static ReconstructionRowDetails checkReconstructionRunDetails(
             final ProductionDatasetLayout layout,
             final String imageId,
-            final String safe,
+            final String safeSample,
+            final String safeSegment,
             final int minimumLumenAreaPx,
             final List<String> failures) {
         final List<String> row = findSuccessfulProcessingRun(
@@ -527,8 +536,8 @@ public final class BatchProductionOutputValidator {
         }
         final Map<String, Integer> idx = ProductionCsvStore.headerIndex(
                 ProductionSchemas.PROCESSING_RUNS_HEADER);
-        final String expectedInput = FilenameSanitizer.maskedClassifiedFilename(safe, safe);
-        final String expectedOutput = FilenameSanitizer.reconstructedClassifiedFilename(safe, safe);
+        final String expectedInput = FilenameSanitizer.maskedClassifiedFilename(safeSample, safeSegment);
+        final String expectedOutput = FilenameSanitizer.reconstructedClassifiedFilename(safeSample, safeSegment);
         final String inputFilename = row.get(idx.get("input_filename").intValue());
         final String outputFilename = row.get(idx.get("output_filename").intValue());
         if (inputFilename == null || !expectedInput.equals(inputFilename.trim())) {
@@ -601,23 +610,24 @@ public final class BatchProductionOutputValidator {
 
     private static void checkPathsUnderRoot(
             final ProductionDatasetLayout layout,
-            final String safe,
+            final String safeSample,
+            final String safeSegment,
             final boolean requireReconstruction,
             final List<String> failures) {
         final Path root = layout.getDatasetRoot();
         requireUnderRoot(root, layout.imagesOriginalRgb().resolve(
-                FilenameSanitizer.originalRgbFilename(safe, safe)), failures);
+                FilenameSanitizer.originalRgbFilename(safeSample, safeSegment)), failures);
         requireUnderRoot(root, layout.imagesMaskedRgb().resolve(
-                FilenameSanitizer.maskedRgbFilename(safe, safe)), failures);
+                FilenameSanitizer.maskedRgbFilename(safeSample, safeSegment)), failures);
         requireUnderRoot(root, layout.imagesMaskedClassified().resolve(
-                FilenameSanitizer.maskedClassifiedFilename(safe, safe)), failures);
+                FilenameSanitizer.maskedClassifiedFilename(safeSample, safeSegment)), failures);
         if (requireReconstruction) {
             requireUnderRoot(root, layout.imagesReconstructedClassified().resolve(
-                    FilenameSanitizer.reconstructedClassifiedFilename(safe, safe)), failures);
+                    FilenameSanitizer.reconstructedClassifiedFilename(safeSample, safeSegment)), failures);
             requireUnderRoot(root, layout.dataLumenMeasurementsPerSegment().resolve(
-                    FilenameSanitizer.lumenMeasurementsFilename(safe, safe)), failures);
+                    FilenameSanitizer.lumenMeasurementsFilename(safeSample, safeSegment)), failures);
             requireUnderRoot(root, layout.dataDiagnosticsPerSegment().resolve(
-                    FilenameSanitizer.artifactDiagnosticsFilename(safe, safe)), failures);
+                    FilenameSanitizer.artifactDiagnosticsFilename(safeSample, safeSegment)), failures);
         }
     }
 
@@ -632,18 +642,20 @@ public final class BatchProductionOutputValidator {
 
     private static boolean approvedMaskExists(
             final ProductionDatasetLayout layout,
-            final String safe) {
-        return findApprovedMask(layout, safe) != null;
+            final String safeSample,
+            final String safeSegment) {
+        return findApprovedMask(layout, safeSample, safeSegment) != null;
     }
 
     private static Path findApprovedMask(
             final ProductionDatasetLayout layout,
-            final String safe) {
+            final String safeSample,
+            final String safeSegment) {
         final Path dir = layout.imagesApprovedMasks();
         if (!Files.isDirectory(dir)) {
             return null;
         }
-        final String prefix = safe + "__" + safe + "__approved_mask_ds";
+        final String prefix = safeSample + "__" + safeSegment + "__approved_mask_ds";
         try {
             final java.io.File[] children = dir.toFile().listFiles();
             if (children == null) {
@@ -689,9 +701,11 @@ public final class BatchProductionOutputValidator {
         checkNoNaNCells(table, "image_manifest", failures);
         final Map<String, Integer> idx = ProductionCsvStore.headerIndex(
                 ProductionSchemas.IMAGE_MANIFEST_HEADER);
-        List<String> row = findRow(table, idx, imageId, imageId);
+        final CoreSegmentId expected = CoreSegmentId.parse(imageId);
+        List<String> row = findRow(table, idx, expected.sampleId(), expected.segmentId());
         if (row == null) {
-            failures.add("image_manifest has no row for sample_id/segment_id=" + imageId);
+            failures.add("image_manifest has no row for sample_id/segment_id="
+                    + expected.sampleId() + "/" + expected.segmentId());
             return;
         }
         checkFinitePositive(row, idx, "pixel_width_um", "image_manifest", failures);
@@ -730,8 +744,10 @@ public final class BatchProductionOutputValidator {
         checkNoNaNCells(table, "segment_manifest", failures);
         final Map<String, Integer> idx = ProductionCsvStore.headerIndex(
                 ProductionSchemas.SEGMENT_MANIFEST_HEADER);
-        if (findRow(table, idx, imageId, imageId) == null) {
-            failures.add("segment_manifest has no row for sample_id/segment_id=" + imageId);
+        final CoreSegmentId expected = CoreSegmentId.parse(imageId);
+        if (findRow(table, idx, expected.sampleId(), expected.segmentId()) == null) {
+            failures.add("segment_manifest has no row for sample_id/segment_id="
+                    + expected.sampleId() + "/" + expected.segmentId());
         }
     }
 
@@ -752,12 +768,13 @@ public final class BatchProductionOutputValidator {
         checkNoNaNCells(table, "processing_runs", failures);
         final Map<String, Integer> idx = ProductionCsvStore.headerIndex(
                 ProductionSchemas.PROCESSING_RUNS_HEADER);
+        final CoreSegmentId expected = CoreSegmentId.parse(imageId);
         boolean classificationSuccess = false;
         boolean reconstructionSuccess = false;
         for (int r = 1; r < table.size(); r++) {
             final List<String> row = table.get(r);
-            if (!imageId.equals(row.get(idx.get("sample_id").intValue()))
-                    || !imageId.equals(row.get(idx.get("segment_id").intValue()))) {
+            if (!expected.sampleId().equals(row.get(idx.get("sample_id").intValue()))
+                    || !expected.segmentId().equals(row.get(idx.get("segment_id").intValue()))) {
                 continue;
             }
             final String stage = row.get(idx.get("stage").intValue());
@@ -783,10 +800,11 @@ public final class BatchProductionOutputValidator {
 
     private static void checkLumenMeasurements(
             final ProductionDatasetLayout layout,
-            final String safe,
+            final String safeSample,
+            final String safeSegment,
             final List<String> failures) {
         final Path path = layout.dataLumenMeasurementsPerSegment().resolve(
-                FilenameSanitizer.lumenMeasurementsFilename(safe, safe));
+                FilenameSanitizer.lumenMeasurementsFilename(safeSample, safeSegment));
         if (!Files.isRegularFile(path)) {
             failures.add("lumen_measurements CSV missing: " + path);
             return;
@@ -814,10 +832,11 @@ public final class BatchProductionOutputValidator {
 
     private static void checkDiagnostics(
             final ProductionDatasetLayout layout,
-            final String safe,
+            final String safeSample,
+            final String safeSegment,
             final List<String> failures) {
         final Path path = layout.dataDiagnosticsPerSegment().resolve(
-                FilenameSanitizer.artifactDiagnosticsFilename(safe, safe));
+                FilenameSanitizer.artifactDiagnosticsFilename(safeSample, safeSegment));
         if (!Files.isRegularFile(path)) {
             failures.add("artifact_diagnostics CSV missing: " + path);
             return;
@@ -847,11 +866,12 @@ public final class BatchProductionOutputValidator {
             }
             final Map<String, Integer> idx = ProductionCsvStore.headerIndex(
                     ProductionSchemas.PROCESSING_RUNS_HEADER);
+            final CoreSegmentId expected = CoreSegmentId.parse(imageId);
             List<String> latest = null;
             for (int r = 1; r < table.size(); r++) {
                 final List<String> row = table.get(r);
-                if (!imageId.equals(row.get(idx.get("sample_id").intValue()))
-                        || !imageId.equals(row.get(idx.get("segment_id").intValue()))) {
+                if (!expected.sampleId().equals(row.get(idx.get("sample_id").intValue()))
+                        || !expected.segmentId().equals(row.get(idx.get("segment_id").intValue()))) {
                     continue;
                 }
                 if (stage.name().equals(row.get(idx.get("stage").intValue()))
@@ -878,7 +898,8 @@ public final class BatchProductionOutputValidator {
             }
             final Map<String, Integer> idx = ProductionCsvStore.headerIndex(
                     ProductionSchemas.IMAGE_MANIFEST_HEADER);
-            final List<String> row = findRow(table, idx, imageId, imageId);
+            final CoreSegmentId expected = CoreSegmentId.parse(imageId);
+            final List<String> row = findRow(table, idx, expected.sampleId(), expected.segmentId());
             if (row == null) {
                 return null;
             }
@@ -890,6 +911,15 @@ public final class BatchProductionOutputValidator {
         } catch (final IOException ex) {
             return null;
         }
+    }
+
+
+    private static String sanitizeSample(final String imageId) {
+        return FilenameSanitizer.sanitizeForFilename(CoreSegmentId.parse(imageId.trim()).sampleId());
+    }
+
+    private static String sanitizeSegment(final String imageId) {
+        return FilenameSanitizer.sanitizeForFilename(CoreSegmentId.parse(imageId.trim()).segmentId());
     }
 
     private static List<String> findRow(

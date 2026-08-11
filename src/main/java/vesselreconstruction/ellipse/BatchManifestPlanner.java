@@ -114,8 +114,11 @@ public final class BatchManifestPlanner {
         if (discovery.hasBlockingErrors()) {
             throw new PlanningException(4, buildValidationFailure(discovery, config));
         }
-        if (config.requireCompleteExpectedSet() && !discovery.missingExpectedIds().isEmpty()) {
-            throw new PlanningException(4, buildValidationFailure(discovery, config));
+        if (config.requireCompleteExpectedSet()) {
+            throw new PlanningException(3,
+                    "input.require_complete_expected_set=true is no longer supported: "
+                            + "the production PPTTCS identity model has no fixed expected image set. "
+                            + "Set input.require_complete_expected_set=false.");
         }
 
         final List<BatchTiffFile> tiffs = discovery.validTiffs();
@@ -131,29 +134,45 @@ public final class BatchManifestPlanner {
         final String created = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
                 .format(new Date());
 
-        final List<List<String>> masterRows = new ArrayList<List<String>>();
-        final List<List<List<String>>> perMachineRows =
-                new ArrayList<List<List<String>>>(slices.size());
-        for (int m = 0; m < slices.size(); m++) {
-            perMachineRows.add(new ArrayList<List<String>>());
-        }
-
-        int globalOrder = 1;
+        // Map each image to its machine assignment (core-preserving slices).
+        final java.util.Map<String, String> imageToMachine =
+                new java.util.HashMap<String, String>();
+        final java.util.Map<String, Integer> imageToAssignmentIndex =
+                new java.util.HashMap<String, Integer>();
         for (int m = 0; m < slices.size(); m++) {
             final BatchMachineAssignment.MachineSlice slice = slices.get(m);
             final List<BatchTiffFile> files = slice.files();
             for (int i = 0; i < files.size(); i++) {
-                final BatchTiffFile file = files.get(i);
-                final List<String> row = buildRow(
-                        globalOrder,
-                        file,
-                        slice.machineId(),
-                        i + 1,
-                        config.sha256());
-                masterRows.add(row);
-                perMachineRows.get(m).add(row);
-                globalOrder++;
+                final String imageId = files.get(i).id().imageId();
+                imageToMachine.put(imageId, slice.machineId());
+                imageToAssignmentIndex.put(imageId, Integer.valueOf(i + 1));
             }
+        }
+
+        final List<List<String>> masterRows = new ArrayList<List<String>>();
+        final List<List<List<String>>> perMachineRows =
+                new ArrayList<List<List<String>>>(slices.size());
+        final java.util.Map<String, Integer> machineRowIndex =
+                new java.util.HashMap<String, Integer>();
+        for (int m = 0; m < slices.size(); m++) {
+            perMachineRows.add(new ArrayList<List<String>>());
+            machineRowIndex.put(slices.get(m).machineId(), Integer.valueOf(m));
+        }
+
+        // Master manifest stays in global canonical TIFF order.
+        for (int i = 0; i < tiffs.size(); i++) {
+            final BatchTiffFile file = tiffs.get(i);
+            final String imageId = file.id().imageId();
+            final String machineId = imageToMachine.get(imageId);
+            final int assignmentIndex = imageToAssignmentIndex.get(imageId).intValue();
+            final List<String> row = buildRow(
+                    i + 1,
+                    file,
+                    machineId,
+                    assignmentIndex,
+                    config.sha256());
+            masterRows.add(row);
+            perMachineRows.get(machineRowIndex.get(machineId).intValue()).add(row);
         }
 
         final String summaryText = buildAssignmentSummary(
@@ -252,7 +271,9 @@ public final class BatchManifestPlanner {
                 file.id().imageId(),
                 file.id().plotId(),
                 file.id().treeId(),
-                file.id().replicateId(),
+                String.valueOf(file.id().coreLabel()),
+                file.id().coreId(),
+                Integer.toString(file.id().segmentOrder()),
                 file.sourceFilename(),
                 relative,
                 file.sha256(),
@@ -375,20 +396,12 @@ public final class BatchManifestPlanner {
             final BatchTiffDiscovery.Result discovery,
             final BatchConfiguration config) {
         final StringBuilder sb = new StringBuilder();
-        sb.append("Discovery/expected-set validation failed.\n");
+        sb.append("Discovery validation failed.\n");
         sb.append("valid TIFF count: ").append(discovery.validTiffs().size()).append('\n');
-        sb.append("expected TIFF count: ").append(80).append('\n');
         sb.append("require complete set: ").append(config.requireCompleteExpectedSet()).append('\n');
         sb.append("malformed TIFF-like files: ").append(discovery.malformedTiffLikeFiles()).append('\n');
         sb.append("duplicate IDs: ").append(discovery.duplicateIds()).append('\n');
-        sb.append("missing IDs: ");
-        for (int i = 0; i < discovery.missingExpectedIds().size(); i++) {
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append(discovery.missingExpectedIds().get(i).imageId());
-        }
-        sb.append('\n');
+        sb.append("missing IDs: (fixed expected set removed under PPTTCS)\n");
         return sb.toString();
     }
 
@@ -433,15 +446,8 @@ public final class BatchManifestPlanner {
                 .append(request.configPath.toAbsolutePath().normalize()).append('\n');
         sb.append("configuration_sha256=").append(config.sha256()).append('\n');
         sb.append("valid_tiff_count=").append(discovery.validTiffs().size()).append('\n');
-        sb.append("expected_tiff_count=80\n");
-        sb.append("missing_ids=");
-        for (int i = 0; i < discovery.missingExpectedIds().size(); i++) {
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append(discovery.missingExpectedIds().get(i).imageId());
-        }
-        sb.append('\n');
+        sb.append("expected_tiff_count=NA\n");
+        sb.append("missing_ids=\n");
         sb.append("duplicate_ids=").append(join(discovery.duplicateIds())).append('\n');
         sb.append("malformed_tiff_like_files=")
                 .append(join(discovery.malformedTiffLikeFiles())).append('\n');

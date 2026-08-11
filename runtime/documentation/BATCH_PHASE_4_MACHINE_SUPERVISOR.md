@@ -66,7 +66,7 @@ java -cp target/classes vesselreconstruction.ellipse.BatchMachineSupervisorCli \
 ### Behaviour
 
 - Consumes `BatchMachineRunPlanner` for the authoritative image list and state.
-- Processes images in strict ascending six-digit (`PPSSRR`) order.
+- Processes images in strict ascending production (`PPTTCS` / `CoreSegmentId`) order.
 - **Exactly one image at a time** — never concurrent images or concurrent Fiji stages from this supervisor.
 - `FULL_SUCCESS` → skip (no subprocess).
 - `CLASSIFICATION_COMPLETE` → invoke existing `BatchFullProcessingCli` (resume reconstruction).
@@ -113,11 +113,12 @@ Created when the execution supervisor runs (not during read-only planning):
 | `MACHINE_FAILED_CONFIGURATION` | 2 |
 | `MACHINE_FAILED_UNEXPECTED` | 6 |
 
-## Six-digit ordering
+## Production identity ordering
 
-Image IDs are `PPSSRR` (plot / sample / replicate). Ascending lexical order is
-the required scientific order (`SixDigitSampleId.compareTo`).
+Image IDs are `PPTTCS` (plot / tree / core A|B / segment 1–5). Canonical order is
+`CoreSegmentId.compareTo` (plot → tree → core A before B → segment order).
 
+Portable deployment migration to this identity model follows in a later phase.
 ## Authoritative inputs
 
 | Input | Source |

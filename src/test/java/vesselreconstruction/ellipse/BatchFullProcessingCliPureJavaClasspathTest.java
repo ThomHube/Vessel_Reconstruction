@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class BatchFullProcessingCliPureJavaClasspathTest {
 
-    private static final String IMAGE_ID = "010101";
+    private static final String IMAGE_ID = "0101A1";
     private static final String MACHINE_ID = "machine_01";
 
     @TempDir
@@ -120,7 +120,8 @@ class BatchFullProcessingCliPureJavaClasspathTest {
                 .resolve(BatchManifestSchema.machineManifestFilename(MACHINE_ID));
         Files.createDirectories(manifestPath.getParent());
         final List<String> row = Arrays.asList(
-                "1", "1", IMAGE_ID, "01", "01", "01",
+                Integer.toString(BatchManifestSchema.SCHEMA_VERSION),
+                "1", IMAGE_ID, "01", "01", "A", "0101A", "1",
                 IMAGE_ID + ".tif", IMAGE_ID + ".tif", sourceSha, "10",
                 MACHINE_ID, "0", "PENDING", "0", "NA", "NA", "NA", "NA",
                 "0", BatchManifestSchema.datasetShardRelativePath(MACHINE_ID), config.sha256());

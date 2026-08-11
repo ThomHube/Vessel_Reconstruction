@@ -19,11 +19,11 @@ class BatchConfigurationTest {
 
     @Test
     void loadsDefaultKeys() throws Exception {
-        final Path config = writeConfig(BatchTestConfigs.validPropertiesText(true, 1, false));
+        final Path config = writeConfig(BatchTestConfigs.validPropertiesText(false, 1, false));
         final BatchConfiguration loaded = BatchConfiguration.load(config);
         assertEquals(1, loaded.schemaVersion());
         assertEquals(false, loaded.recursive());
-        assertEquals(true, loaded.requireCompleteExpectedSet());
+        assertEquals(false, loaded.requireCompleteExpectedSet());
         assertEquals(1, loaded.machinesCount());
         assertEquals(8, loaded.maskDownsampleFactor());
         assertEquals(ScaleBarDetectionConfidence.MEDIUM, loaded.scaleBarMinimumConfidence());

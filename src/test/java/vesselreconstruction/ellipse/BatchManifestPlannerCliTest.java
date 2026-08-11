@@ -52,8 +52,8 @@ class BatchManifestPlannerCliTest {
         final Path input = tempDir.resolve("cli-input");
         final Path batch = tempDir.resolve("cli-batch");
         Files.createDirectories(input);
-        Files.write(input.resolve("010101.tif"), "a".getBytes(StandardCharsets.UTF_8));
-        Files.write(input.resolve("010102.tif"), "b".getBytes(StandardCharsets.UTF_8));
+        Files.write(input.resolve("0101A1.tif"), "a".getBytes(StandardCharsets.UTF_8));
+        Files.write(input.resolve("0101A2.tif"), "b".getBytes(StandardCharsets.UTF_8));
         final Path config = tempDir.resolve("cli.properties");
         Files.write(config, BatchTestConfigs.validPropertiesText(false, 1, false)
                 .getBytes(StandardCharsets.UTF_8));

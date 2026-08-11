@@ -15,7 +15,7 @@ class BatchMachineImageExecutionResultTest {
         final long end = 1100L;
         final BatchMachineImageExecutionResult result = BatchMachineImageExecutionResult.builder()
                 .sequenceNumber(1)
-                .imageId("010101")
+                .imageId("0101A1")
                 .initialState(BatchMachineImageState.FULL_SUCCESS)
                 .plannedAction(BatchMachinePlannedAction.SKIP_COMPLETE)
                 .processingAttempted(false)
@@ -38,7 +38,7 @@ class BatchMachineImageExecutionResultTest {
     void rejectsInvalidTiming() {
         assertThrows(IllegalArgumentException.class, () -> BatchMachineImageExecutionResult.builder()
                 .sequenceNumber(1)
-                .imageId("010101")
+                .imageId("0101A1")
                 .initialState(BatchMachineImageState.READY_FOR_FULL_PROCESSING)
                 .plannedAction(BatchMachinePlannedAction.RUN_FULL_PROCESSING)
                 .timing(2000L, 1000L)

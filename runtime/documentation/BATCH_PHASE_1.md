@@ -10,157 +10,74 @@ This phase **plans** unattended multi-computer work. It does **not**:
 - merge dataset shards
 - copy portable Fiji bundles
 
-Phase 1 discovers source TIFFs, validates filenames against the six-digit grammar, partitions work across machines, and writes master/per-machine manifests plus human-readable reports.
+Phase 1 discovers source TIFFs, validates filenames against the production
+core/segment grammar, partitions work across machines **without splitting a
+physical core**, and writes master/per-machine manifests plus human-readable
+reports.
 
 ## Filename grammar
 
-Every source TIFF base name is exactly one six-digit image ID:
+Every source TIFF base name is exactly one production image ID:
 
 ```text
-PPSSRR
+PPTTCS
 ```
 
 | Field | Meaning | Valid values |
 |-------|---------|--------------|
-| `PP` | plot ID | `01` or `02` |
-| `SS` | tree/sample number | `01` through `20` |
-| `RR` | physical replicate from the tree | `01` or `02` |
+| `PP` | plot ID | two digits, not `00` |
+| `TT` | individual tree | two digits, not `00` |
+| `C` | physical core label | `A` or `B` |
+| `S` | segment order | `1` through `5` |
+
+Examples: `0101A1`, `0101A2`, `0101B1`, `0207B5`.
 
 Accepted extensions (case-insensitive): `.tif`, `.tiff`.
 
-The base name must equal the ID exactly. Names such as `010101-copy.tif`, `010101_1.tif`, `sample010101.tif`, or `010101.jpg` are rejected.
+The base name must equal the ID exactly (no surrounding whitespace, no case
+folding). Names such as `0101A1-copy.tif`, `010101.tif`, `0101a1.tif`,
+`0101C1.tif`, `0101A0.tif`, `0101A6.tif`, `0001A1.tif`, `0100A1.tif`,
+` 0101A1.tif`, or `0101A1.jpg` are rejected.
 
-Replicates (`RR`) are separate physical samples. They are never treated as continuous image segments.
+Authoritative fields for `0101A2`:
 
-## Expected production set
+| Field | Value |
+|-------|-------|
+| `image_id` | `0101A2` |
+| `plot_id` | `01` |
+| `tree_id` | `01` |
+| `core_label` | `A` |
+| `core_id` / `sample_id` | `0101A` |
+| `segment_id` | `0101A2` |
+| `segment_order` | `2` |
 
-A complete production collection contains **exactly 80** IDs:
+Segment order is physical: `1` = closest to bark … `5` = closest to center when
+present. A core may contain fewer than five segments. There is **no** fixed
+expected set of 80 images and **no** replicate field.
 
-```text
-2 plots × 20 trees × 2 replicates = 80
-```
+## Machine assignment
 
-Canonical order begins with `010101` and ends with `022002`.
+All segments sharing the same `core_id` are assigned to the same machine.
+Ordered core groups are assigned to the currently least-loaded machine by image
+count (ties → lower machine index). Core integrity takes priority over equal
+image counts.
 
-## Small subset test mode
+## Complete-set flag
 
-The current computer may test with only two or three smaller TIFFs. Copy the default configuration and disable the complete-set requirement:
+`input.require_complete_expected_set=true` is **no longer supported** under
+PPTTCS (no fixed expected ID list). Use `false`.
 
-```bash
-cp runtime/batch/default_batch.properties /tmp/lumen_test_batch.properties
-```
+## Portable deployment note
 
-Then edit `/tmp/lumen_test_batch.properties`:
+The validated portable installer/launcher layer is still pinned to the previous
+scientific checkpoint and temporary six-digit portable workflow. Portable
+migration/re-pinning follows in a later phase after this Java identity model is
+committed as a new scientific checkpoint.
 
-```properties
-input.require_complete_expected_set=false
-machines.count=1
-```
+## Outputs
 
-Keep the production default at:
-
-```properties
-input.require_complete_expected_set=true
-```
-
-## Configuration keys
-
-Exact Phase-1 keys in `runtime/batch/default_batch.properties`:
-
-```properties
-batch.schema_version=1
-input.recursive=false
-input.require_complete_expected_set=true
-machines.count=1
-```
-
-Unknown keys, missing keys, blank values, and non-strict booleans are rejected.
-
-The configuration fingerprint is SHA-256 of the **canonical text**:
-
-- keys sorted lexicographically
-- `key=value` lines
-- `\n` endings
-- trailing newline
-
-Key order in the properties file does not affect the fingerprint.
-
-## Machine partitioning
-
-Assignment is **balanced contiguous** ranges over the canonically sorted TIFF list:
-
-- machine IDs: `machine_01`, `machine_02`, …
-- global TIFF order is preserved
-- remainder goes to the first machines
-- assignment sizes differ by at most one
-- empty machine manifests are allowed (header only)
-
-Example: 80 files / 3 machines → `27, 27, 26`.
-
-## Manifest locations
-
-Under `<batch-root>`:
-
-| Path | Purpose |
-|------|---------|
-| `master_batch_manifest.csv` | Full ordered plan |
-| `machines/machine_XX_manifest.csv` | Per-machine rows |
-| `machine_assignment_summary.txt` | Counts and ranges |
-| `batch_plan_report.txt` | Validation / planning status |
-
-Manifests store **relative** source paths only. Initial row status is `PENDING` with `attempt_count=0`. Unavailable fields use `NA`. Dataset shard paths look like `output/lumen_dataset_machine_01`.
-
-## Exact planner command
-
-After `mvn package` (so `target/classes` exists):
-
-```bash
-runtime/batch/plan_batch.sh \
-  "/path/to/small_test_tiffs" \
-  "/path/to/test_batch" \
-  "/tmp/lumen_test_batch.properties"
-```
-
-Equivalent Java invocation:
-
-```bash
-java -cp target/classes vesselreconstruction.ellipse.BatchManifestPlannerCli \
-  --input-root "/path/to/small_test_tiffs" \
-  --batch-root "/path/to/test_batch" \
-  --config "/tmp/lumen_test_batch.properties"
-```
-
-## Exact inspection command
-
-```bash
-runtime/batch/inspect_batch_plan.sh "/path/to/test_batch"
-```
-
-## Failure meanings (CLI exit codes)
-
-| Code | Meaning |
-|------|---------|
-| `0` | Success |
-| `2` | Invalid arguments |
-| `3` | Invalid configuration |
-| `4` | Discovery or expected-set validation failure |
-| `5` | Output-writing failure |
-| `6` | Unexpected failure |
-
-On failure, any earlier **valid** plan under the batch root is preserved; partial mixed plans are not committed.
-
-## Test example (subset)
-
-```bash
-cp runtime/batch/default_batch.properties /tmp/lumen_test_batch.properties
-# edit: input.require_complete_expected_set=false and machines.count=1
-
-runtime/batch/plan_batch.sh \
-  "/path/to/small_test_tiffs" \
-  "/path/to/test_batch" \
-  "/tmp/lumen_test_batch.properties"
-
-runtime/batch/inspect_batch_plan.sh "/path/to/test_batch"
-```
-
-Do not start image processing in this phase.
+Unchanged layout under the batch root (`master_batch_manifest.csv`,
+`machines/machine_XX_manifest.csv`, assignment summary, plan report). Manifest
+columns now include `core_label`, `core_id`, and `segment_order` instead of
+`replicate_id`. Newly written manifests use `schema_version=2` (incompatible
+with the prior six-digit `schema_version=1` layout).

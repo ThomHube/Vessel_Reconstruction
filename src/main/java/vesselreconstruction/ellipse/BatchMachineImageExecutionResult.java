@@ -197,7 +197,7 @@ public final class BatchMachineImageExecutionResult {
             if (sequenceNumber < 1) {
                 throw new IllegalArgumentException("sequenceNumber must be >= 1");
             }
-            SixDigitSampleId.parse(imageId);
+            CoreSegmentId.parse(imageId);
             if (initialState == null || plannedAction == null) {
                 throw new IllegalArgumentException("state and action must not be null");
             }

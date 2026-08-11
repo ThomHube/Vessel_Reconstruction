@@ -33,7 +33,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class BatchFullProcessingCliTest {
 
     private static final String MACHINE_ID = "machine_01";
-    private static final String IMAGE_ID = "010101";
+    private static final String IMAGE_ID = "0101A1";
+    private static final String SAMPLE_ID = "0101A";
 
     @TempDir
     Path tempDir;
@@ -350,7 +351,7 @@ class BatchFullProcessingCliTest {
 
         final BatchFullProcessingJob job = new BatchFullProcessingJob(
                 1,
-                SixDigitSampleId.parse(IMAGE_ID),
+                CoreSegmentId.parse(IMAGE_ID),
                 MACHINE_ID,
                 source.toAbsolutePath().normalize(),
                 IMAGE_ID + ".tif",
@@ -568,7 +569,7 @@ class BatchFullProcessingCliTest {
         BatchProductionOutputValidatorTest.seedCompleteDataset(
                 datasetRoot, Files.readAllBytes(fixture.sourcePath));
         Files.delete(new ProductionDatasetLayout(datasetRoot).imagesReconstructedClassified()
-                .resolve(FilenameSanitizer.reconstructedClassifiedFilename(IMAGE_ID, IMAGE_ID)));
+                .resolve(FilenameSanitizer.reconstructedClassifiedFilename(SAMPLE_ID, IMAGE_ID)));
 
         final AtomicInteger launches = new AtomicInteger(0);
         final BatchFullProcessingCli.ProcessLauncher launcher = countingLauncher(launches, command -> {
@@ -595,7 +596,7 @@ class BatchFullProcessingCliTest {
         BatchProductionOutputValidatorTest.seedCompleteDataset(
                 datasetRoot, Files.readAllBytes(fixture.sourcePath));
         Files.delete(new ProductionDatasetLayout(datasetRoot).dataLumenMeasurementsPerSegment()
-                .resolve(FilenameSanitizer.lumenMeasurementsFilename(IMAGE_ID, IMAGE_ID)));
+                .resolve(FilenameSanitizer.lumenMeasurementsFilename(SAMPLE_ID, IMAGE_ID)));
 
         final AtomicInteger launches = new AtomicInteger(0);
         final int exitCode = BatchFullProcessingCli.run(fixture.args(),
@@ -616,7 +617,7 @@ class BatchFullProcessingCliTest {
         BatchProductionOutputValidatorTest.seedCompleteDataset(
                 datasetRoot, Files.readAllBytes(fixture.sourcePath));
         Files.delete(new ProductionDatasetLayout(datasetRoot).dataDiagnosticsPerSegment()
-                .resolve(FilenameSanitizer.artifactDiagnosticsFilename(IMAGE_ID, IMAGE_ID)));
+                .resolve(FilenameSanitizer.artifactDiagnosticsFilename(SAMPLE_ID, IMAGE_ID)));
 
         final AtomicInteger launches = new AtomicInteger(0);
         final int exitCode = BatchFullProcessingCli.run(fixture.args(),
@@ -637,7 +638,7 @@ class BatchFullProcessingCliTest {
         BatchProductionOutputValidatorTest.seedCompleteDataset(
                 datasetRoot, Files.readAllBytes(fixture.sourcePath));
         Files.delete(new ProductionDatasetLayout(datasetRoot).imagesMaskedClassified()
-                .resolve(FilenameSanitizer.maskedClassifiedFilename(IMAGE_ID, IMAGE_ID)));
+                .resolve(FilenameSanitizer.maskedClassifiedFilename(SAMPLE_ID, IMAGE_ID)));
 
         final AtomicInteger launches = new AtomicInteger(0);
         final int exitCode = BatchFullProcessingCli.run(fixture.args(),
@@ -830,9 +831,10 @@ class BatchFullProcessingCliTest {
         final ProductionDatasetLayout layout = new ProductionDatasetLayout(datasetRoot);
         layout.ensureDirectoriesExist();
 
-        final String safe = FilenameSanitizer.sanitizeForFilename(IMAGE_ID);
+        final String safeSample = FilenameSanitizer.sanitizeForFilename(SAMPLE_ID);
+        final String safeSegment = FilenameSanitizer.sanitizeForFilename(IMAGE_ID);
         final Path maskedClassified = layout.imagesMaskedClassified().resolve(
-                FilenameSanitizer.maskedClassifiedFilename(safe, safe));
+                FilenameSanitizer.maskedClassifiedFilename(safeSample, safeSegment));
         Files.write(maskedClassified, "masked-classified-bytes".getBytes(StandardCharsets.UTF_8));
         final String maskedClassifiedSha = Sha256Files.sha256OfFile(maskedClassified);
 
@@ -840,7 +842,7 @@ class BatchFullProcessingCliTest {
         final Map<String, Integer> imageIdx =
                 ProductionCsvStore.headerIndex(ProductionSchemas.IMAGE_MANIFEST_HEADER);
         imageRow.set(imageIdx.get("schema_version").intValue(), "1");
-        imageRow.set(imageIdx.get("sample_id").intValue(), IMAGE_ID);
+        imageRow.set(imageIdx.get("sample_id").intValue(), "0101A");
         imageRow.set(imageIdx.get("segment_id").intValue(), IMAGE_ID);
         imageRow.set(imageIdx.get("source_rgb_sha256").intValue(), sourceSha);
         imageRow.set(imageIdx.get("masked_classified_sha256").intValue(), maskedClassifiedSha);
@@ -858,7 +860,7 @@ class BatchFullProcessingCliTest {
         runRow.set(runIdx.get("stage").intValue(),
                 ProductionSchemas.ProcessingStage.TILED_CLASSIFICATION.name());
         runRow.set(runIdx.get("status").intValue(), ProductionSchemas.RunStatus.SUCCESS.name());
-        runRow.set(runIdx.get("sample_id").intValue(), IMAGE_ID);
+        runRow.set(runIdx.get("sample_id").intValue(), "0101A");
         runRow.set(runIdx.get("segment_id").intValue(), IMAGE_ID);
         ProductionCsvStore.writeTableAtomically(
                 layout.processingRuns(), ProductionSchemas.PROCESSING_RUNS_HEADER,
@@ -907,7 +909,8 @@ class BatchFullProcessingCliTest {
                 .resolve(BatchManifestSchema.machineManifestFilename(MACHINE_ID));
         Files.createDirectories(manifestPath.getParent());
         final List<String> row = Arrays.asList(
-                "1", "1", IMAGE_ID, "01", "01", "01",
+                Integer.toString(BatchManifestSchema.SCHEMA_VERSION),
+                "1", IMAGE_ID, "01", "01", "A", "0101A", "1",
                 IMAGE_ID + ".tif", IMAGE_ID + ".tif", sourceSha, "10",
                 MACHINE_ID, "0", "PENDING", "0", "NA", "NA", "NA", "NA",
                 "0", BatchManifestSchema.datasetShardRelativePath(MACHINE_ID), config.sha256());

@@ -5,11 +5,11 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Canonical Phase-1 batch manifest CSV schema.
+ * Canonical Phase-1 batch manifest CSV schema (production core/segment identity).
  */
 public final class BatchManifestSchema {
 
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
     public static final String STATUS_PENDING = "PENDING";
 
     public static final List<String> HEADER = Collections.unmodifiableList(Arrays.asList(
@@ -18,7 +18,9 @@ public final class BatchManifestSchema {
             "image_id",
             "plot_id",
             "tree_id",
-            "replicate_id",
+            "core_label",
+            "core_id",
+            "segment_order",
             "source_filename",
             "source_relative_path",
             "source_sha256",

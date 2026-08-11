@@ -261,7 +261,7 @@ public final class BatchPrecheckSupervisor {
 
         final BatchPrecheckJob job = new BatchPrecheckJob(
                 1,
-                SixDigitSampleId.parse(row.imageId),
+                CoreSegmentId.parse(row.imageId),
                 request.machineId,
                 source,
                 row.sourceRelativePath,
@@ -488,28 +488,43 @@ public final class BatchPrecheckSupervisor {
         if (table.isEmpty() || !table.get(0).equals(BatchManifestSchema.HEADER)) {
             throw new IllegalArgumentException("machine manifest header mismatch");
         }
+        final int idxSchema = BatchManifestSchema.HEADER.indexOf("schema_version");
+        final int idxOrder = BatchManifestSchema.HEADER.indexOf("order_index");
+        final int idxImage = BatchManifestSchema.HEADER.indexOf("image_id");
+        final int idxFilename = BatchManifestSchema.HEADER.indexOf("source_filename");
+        final int idxRelative = BatchManifestSchema.HEADER.indexOf("source_relative_path");
+        final int idxSha = BatchManifestSchema.HEADER.indexOf("source_sha256");
+        final int idxMachine = BatchManifestSchema.HEADER.indexOf("assigned_machine");
+        final int idxConfig = BatchManifestSchema.HEADER.indexOf("configuration_sha256");
+        final String expectedSchema = Integer.toString(BatchManifestSchema.SCHEMA_VERSION);
         final List<ManifestRow> rows = new ArrayList<ManifestRow>();
         for (int i = 1; i < table.size(); i++) {
             final List<String> r = table.get(i);
             if (r.size() < BatchManifestSchema.HEADER.size()) {
                 throw new IllegalArgumentException("short manifest row at " + i);
             }
-            final String assigned = r.get(10);
+            final String schemaVersion = r.get(idxSchema);
+            if (!expectedSchema.equals(schemaVersion)) {
+                throw new IllegalArgumentException(
+                        "machine manifest schema_version must be " + expectedSchema
+                                + ", found " + schemaVersion);
+            }
+            final String assigned = r.get(idxMachine);
             if (!machineId.equals(assigned)) {
                 throw new IllegalArgumentException(
                         "manifest row assigned to " + assigned + " not " + machineId);
             }
-            final String configSha = r.get(20);
+            final String configSha = r.get(idxConfig);
             if (!expectedConfigSha.equalsIgnoreCase(configSha)) {
                 throw new IllegalArgumentException(
-                        "manifest configuration SHA-256 mismatch for image " + r.get(2));
+                        "manifest configuration SHA-256 mismatch for image " + r.get(idxImage));
             }
             rows.add(new ManifestRow(
-                    Integer.parseInt(r.get(1)),
-                    r.get(2),
-                    r.get(6),
-                    r.get(7).replace('\\', '/'),
-                    r.get(8).toLowerCase(Locale.ROOT)));
+                    Integer.parseInt(r.get(idxOrder)),
+                    r.get(idxImage),
+                    r.get(idxFilename),
+                    r.get(idxRelative).replace('\\', '/'),
+                    r.get(idxSha).toLowerCase(Locale.ROOT)));
         }
         return rows;
     }

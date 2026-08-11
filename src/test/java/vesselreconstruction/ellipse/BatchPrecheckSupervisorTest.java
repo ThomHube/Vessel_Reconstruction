@@ -34,15 +34,15 @@ class BatchPrecheckSupervisorTest {
     @Test
     void preserveManifestOrder() throws Exception {
         final Harness h = Harness.create(tempDir.resolve("order"), true,
-                Arrays.asList("010101", "010201", "020101"));
+                Arrays.asList("0101A1", "0102A1", "0201A1"));
         final RecordingLauncher launcher = RecordingLauncher.successForAll();
         final BatchPrecheckSupervisor.Summary summary = BatchPrecheckSupervisor.run(h.request(launcher));
         assertEquals(0, summary.exitCode);
         assertEquals(3, summary.success);
         final List<List<String>> table = ProductionCsvStore.readTable(summary.resultsCsv);
-        assertEquals("010101", table.get(1).get(2));
-        assertEquals("010201", table.get(2).get(2));
-        assertEquals("020101", table.get(3).get(2));
+        assertEquals("0101A1", table.get(1).get(2));
+        assertEquals("0102A1", table.get(2).get(2));
+        assertEquals("0201A1", table.get(3).get(2));
         assertEquals("1", table.get(1).get(1));
         assertEquals("2", table.get(2).get(1));
         assertEquals("3", table.get(3).get(1));
@@ -51,7 +51,7 @@ class BatchPrecheckSupervisorTest {
     @Test
     void continueAfterReviewRequired() throws Exception {
         final Harness h = Harness.create(tempDir.resolve("review"), true,
-                Arrays.asList("010101", "010102"));
+                Arrays.asList("0101A1", "0101A2"));
         final RecordingLauncher launcher = RecordingLauncher.withStatuses(
                 BatchPrecheckStatus.REVIEW_REQUIRED_MASK,
                 BatchPrecheckStatus.PRECHECK_SUCCESS);
@@ -66,7 +66,7 @@ class BatchPrecheckSupervisorTest {
     @Test
     void continueAfterFailureWhenContinueTrue() throws Exception {
         final Harness h = Harness.create(tempDir.resolve("cont-true"), true,
-                Arrays.asList("010101", "010102"));
+                Arrays.asList("0101A1", "0101A2"));
         final RecordingLauncher launcher = RecordingLauncher.withStatuses(
                 BatchPrecheckStatus.FAILED_UNEXPECTED,
                 BatchPrecheckStatus.PRECHECK_SUCCESS);
@@ -80,7 +80,7 @@ class BatchPrecheckSupervisorTest {
     @Test
     void stopWhenContinueFalse() throws Exception {
         final Harness h = Harness.create(tempDir.resolve("cont-false"), false,
-                Arrays.asList("010101", "010102"));
+                Arrays.asList("0101A1", "0101A2"));
         final RecordingLauncher launcher = RecordingLauncher.withStatuses(
                 BatchPrecheckStatus.FAILED_UNEXPECTED,
                 BatchPrecheckStatus.PRECHECK_SUCCESS);
@@ -92,9 +92,28 @@ class BatchPrecheckSupervisorTest {
     }
 
     @Test
+    void rejectsSchemaVersionOneManifest() throws Exception {
+        final Harness h = Harness.create(tempDir.resolve("schema-v1"), true,
+                Collections.singletonList("0101A1"));
+        final Path manifest = h.batchRoot.resolve(BatchManifestSchema.DIR_MACHINES)
+                .resolve(BatchManifestSchema.machineManifestFilename("machine_01"));
+        final List<List<String>> table = ProductionCsvStore.readTable(manifest);
+        final List<String> row = new ArrayList<String>(table.get(1));
+        row.set(BatchManifestSchema.HEADER.indexOf("schema_version"), "1");
+        ProductionCsvStore.writeTableAtomically(
+                manifest, BatchManifestSchema.HEADER, Collections.singletonList(row));
+        final IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> BatchPrecheckSupervisor.readMachineManifest(
+                        manifest, "machine_01", h.config.sha256()));
+        assertTrue(ex.getMessage().contains("schema_version"));
+        assertTrue(ex.getMessage().contains("2"));
+    }
+
+    @Test
     void timeoutTermination() throws Exception {
         final Harness h = Harness.create(tempDir.resolve("timeout"), true,
-                Collections.singletonList("010101"));
+                Collections.singletonList("0101A1"));
         final RecordingLauncher launcher = new RecordingLauncher() {
             @Override
             Process createProcess(final List<String> command) {
@@ -112,7 +131,7 @@ class BatchPrecheckSupervisorTest {
     @Test
     void validPriorSuccessSkipped() throws Exception {
         final Harness h = Harness.create(tempDir.resolve("skip"), true,
-                Arrays.asList("010101", "010102"));
+                Arrays.asList("0101A1", "0101A2"));
         final RecordingLauncher first = RecordingLauncher.successForAll();
         BatchPrecheckSupervisor.run(h.request(first));
         assertEquals(2, first.starts.get());
@@ -127,7 +146,7 @@ class BatchPrecheckSupervisorTest {
     @Test
     void staleConfigurationRerun() throws Exception {
         final Harness h = Harness.create(tempDir.resolve("stale-cfg"), true,
-                Collections.singletonList("010101"));
+                Collections.singletonList("0101A1"));
         BatchPrecheckSupervisor.run(h.request(RecordingLauncher.successForAll()));
 
         final List<List<String>> prior = ProductionCsvStore.readTable(
@@ -148,7 +167,7 @@ class BatchPrecheckSupervisorTest {
     @Test
     void staleSourceRerun() throws Exception {
         final Harness h = Harness.create(tempDir.resolve("stale-src"), true,
-                Collections.singletonList("010101"));
+                Collections.singletonList("0101A1"));
         BatchPrecheckSupervisor.run(h.request(RecordingLauncher.successForAll()));
 
         final List<List<String>> prior = ProductionCsvStore.readTable(
@@ -169,7 +188,7 @@ class BatchPrecheckSupervisorTest {
     @Test
     void noDuplicateRows() throws Exception {
         final Harness h = Harness.create(tempDir.resolve("dedupe"), true,
-                Arrays.asList("010101", "010102"));
+                Arrays.asList("0101A1", "0101A2"));
         BatchPrecheckSupervisor.run(h.request(RecordingLauncher.successForAll()));
         BatchPrecheckSupervisor.run(h.request(RecordingLauncher.successForAll()));
         final List<List<String>> table = ProductionCsvStore.readTable(
@@ -184,7 +203,7 @@ class BatchPrecheckSupervisorTest {
     @Test
     void atomicCsvUpdateFailurePreservesPrevious() throws Exception {
         final Harness h = Harness.create(tempDir.resolve("atomic"), true,
-                Arrays.asList("010101", "010102"));
+                Arrays.asList("0101A1", "0101A2"));
         final Path resultsCsv = h.batchRoot.resolve(
                 BatchPrecheckCsvSchema.resultsCsvRelativePath("machine_01"));
         final Path machineRoot = resultsCsv.getParent();
@@ -221,7 +240,7 @@ class BatchPrecheckSupervisorTest {
             assertTrue(Files.isRegularFile(resultsCsv));
             final List<List<String>> table = ProductionCsvStore.readTable(resultsCsv);
             assertEquals(2, table.size());
-            assertEquals("010101", table.get(1).get(2));
+            assertEquals("0101A1", table.get(1).get(2));
             assertTrue(Files.readAllBytes(resultsCsv).length > 0);
         } finally {
             try {
@@ -310,16 +329,16 @@ class BatchPrecheckSupervisorTest {
                 final Path source = inputRoot.resolve(imageId + ".tif");
                 Files.write(source, ("tiff-" + imageId).getBytes(StandardCharsets.UTF_8));
                 final String sha = Sha256Files.sha256OfFile(source);
-                final String plot = imageId.substring(0, 2);
-                final String tree = imageId.substring(2, 4);
-                final String rep = imageId.substring(4, 6);
+                final CoreSegmentId id = CoreSegmentId.parse(imageId);
                 rows.add(Arrays.asList(
-                        "1",
+                        Integer.toString(BatchManifestSchema.SCHEMA_VERSION),
                         Integer.toString(i + 1),
                         imageId,
-                        plot,
-                        tree,
-                        rep,
+                        id.plotId(),
+                        id.treeId(),
+                        String.valueOf(id.coreLabel()),
+                        id.coreId(),
+                        Integer.toString(id.segmentOrder()),
                         imageId + ".tif",
                         imageId + ".tif",
                         sha,

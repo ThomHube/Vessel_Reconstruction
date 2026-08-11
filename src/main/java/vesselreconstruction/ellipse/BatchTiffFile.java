@@ -5,11 +5,11 @@ import java.util.Locale;
 import java.util.Objects;
 
 /**
- * Immutable discovered TIFF assigned to a six-digit sample ID.
+ * Immutable discovered TIFF assigned to a production {@link CoreSegmentId}.
  */
 public final class BatchTiffFile {
 
-    private final SixDigitSampleId id;
+    private final CoreSegmentId id;
     private final Path absolutePath;
     private final Path relativePath;
     private final String sourceFilename;
@@ -18,7 +18,7 @@ public final class BatchTiffFile {
     private final String sha256;
 
     public BatchTiffFile(
-            final SixDigitSampleId id,
+            final CoreSegmentId id,
             final Path absolutePath,
             final Path relativePath,
             final String sourceFilename,
@@ -56,40 +56,38 @@ public final class BatchTiffFile {
     }
 
     /**
-     * Parses a TIFF filename (name only) into a six-digit ID and extension.
-     *
-     * @return array of [SixDigitSampleId as string imageId, extension including leading dot]
+     * Parses a TIFF filename (name only) into a production core/segment ID and extension.
      */
     public static ParsedFilename parseFilename(final String filename) {
-        if (filename == null || filename.trim().isEmpty()) {
+        if (filename == null || filename.isEmpty()) {
             throw new IllegalArgumentException("filename must not be blank");
         }
-        final String name = filename.trim();
-        if (name.contains("/") || name.contains("\\")) {
+        // No whitespace normalization: TIFF base name must be an exact CoreSegmentId.
+        if (filename.contains("/") || filename.contains("\\")) {
             throw new IllegalArgumentException(
                     "filename must not contain path separators: " + filename);
         }
-        final int dot = name.lastIndexOf('.');
-        if (dot <= 0 || dot == name.length() - 1) {
+        final int dot = filename.lastIndexOf('.');
+        if (dot <= 0 || dot == filename.length() - 1) {
             throw new IllegalArgumentException(
                     "TIFF filename must have a base name and extension: " + filename);
         }
-        final String base = name.substring(0, dot);
-        final String ext = name.substring(dot);
+        final String base = filename.substring(0, dot);
+        final String ext = filename.substring(dot);
         final String extLower = ext.toLowerCase(Locale.ROOT);
         if (!".tif".equals(extLower) && !".tiff".equals(extLower)) {
             throw new IllegalArgumentException(
                     "unsupported extension (expected .tif/.tiff): " + filename);
         }
-        final SixDigitSampleId id = SixDigitSampleId.parse(base);
+        final CoreSegmentId id = CoreSegmentId.parse(base);
         if (!base.equals(id.imageId())) {
             throw new IllegalArgumentException(
-                    "TIFF base name must equal the six-digit ID exactly: " + filename);
+                    "TIFF base name must equal the production image ID exactly: " + filename);
         }
         return new ParsedFilename(id, extLower);
     }
 
-    public SixDigitSampleId id() {
+    public CoreSegmentId id() {
         return id;
     }
 
@@ -147,10 +145,10 @@ public final class BatchTiffFile {
     }
 
     public static final class ParsedFilename {
-        public final SixDigitSampleId id;
+        public final CoreSegmentId id;
         public final String extension;
 
-        public ParsedFilename(final SixDigitSampleId id, final String extension) {
+        public ParsedFilename(final CoreSegmentId id, final String extension) {
             this.id = id;
             this.extension = extension;
         }

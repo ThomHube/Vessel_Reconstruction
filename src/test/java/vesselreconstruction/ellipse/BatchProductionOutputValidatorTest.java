@@ -17,7 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BatchProductionOutputValidatorTest {
 
-    private static final String IMAGE_ID = "010101";
+    private static final String IMAGE_ID = "0101A1";
+    private static final String SAMPLE_ID = "0101A";
 
     @TempDir
     Path tempDir;
@@ -163,7 +164,7 @@ class BatchProductionOutputValidatorTest {
         final List<String> row = lumenRow("L000001");
         final List<List<String>> rows = Arrays.asList(row, lumenRow("L000001"));
         final Path lumenPath = layout.dataLumenMeasurementsPerSegment().resolve(
-                FilenameSanitizer.lumenMeasurementsFilename(IMAGE_ID, IMAGE_ID));
+                FilenameSanitizer.lumenMeasurementsFilename(SAMPLE_ID, IMAGE_ID));
         ProductionCsvStore.writeTableAtomically(
                 lumenPath, ProductionSchemas.LUMEN_MEASUREMENTS_HEADER, rows);
 
@@ -190,7 +191,7 @@ class BatchProductionOutputValidatorTest {
         final List<String> row = lumenRow("L000001");
         row.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("area_um2"), "NaN");
         final Path lumenPath = layout.dataLumenMeasurementsPerSegment().resolve(
-                FilenameSanitizer.lumenMeasurementsFilename(IMAGE_ID, IMAGE_ID));
+                FilenameSanitizer.lumenMeasurementsFilename(SAMPLE_ID, IMAGE_ID));
         ProductionCsvStore.writeTableAtomically(
                 lumenPath, ProductionSchemas.LUMEN_MEASUREMENTS_HEADER,
                 Arrays.asList(row));
@@ -252,7 +253,7 @@ class BatchProductionOutputValidatorTest {
                 datasetRoot, "tiff-bytes".getBytes(StandardCharsets.UTF_8));
         final ProductionDatasetLayout layout = new ProductionDatasetLayout(datasetRoot);
         Files.delete(layout.imagesMaskedClassified().resolve(
-                FilenameSanitizer.maskedClassifiedFilename(IMAGE_ID, IMAGE_ID)));
+                FilenameSanitizer.maskedClassifiedFilename(SAMPLE_ID, IMAGE_ID)));
 
         final BatchProductionOutputValidator.FinalizedDatasetInspection inspection =
                 BatchProductionOutputValidator.inspectFinalizedDataset(
@@ -289,25 +290,25 @@ class BatchProductionOutputValidatorTest {
         layout.ensureDirectoriesExist();
 
         final Path originalRgb = layout.imagesOriginalRgb().resolve(
-                FilenameSanitizer.originalRgbFilename(IMAGE_ID, IMAGE_ID));
+                FilenameSanitizer.originalRgbFilename(SAMPLE_ID, IMAGE_ID));
         Files.write(originalRgb, sourceBytes);
         final String sha = Sha256Files.sha256OfFile(originalRgb);
 
         final Path approvedMask = layout.imagesApprovedMasks().resolve(
-                FilenameSanitizer.approvedMaskFilename(IMAGE_ID, IMAGE_ID, 8));
+                FilenameSanitizer.approvedMaskFilename(SAMPLE_ID, IMAGE_ID, 8));
         Files.write(approvedMask, "mask".getBytes(StandardCharsets.UTF_8));
 
         final Path maskedRgb = layout.imagesMaskedRgb().resolve(
-                FilenameSanitizer.maskedRgbFilename(IMAGE_ID, IMAGE_ID));
+                FilenameSanitizer.maskedRgbFilename(SAMPLE_ID, IMAGE_ID));
         Files.write(maskedRgb, "masked-rgb".getBytes(StandardCharsets.UTF_8));
 
         final Path maskedClassified = layout.imagesMaskedClassified().resolve(
-                FilenameSanitizer.maskedClassifiedFilename(IMAGE_ID, IMAGE_ID));
+                FilenameSanitizer.maskedClassifiedFilename(SAMPLE_ID, IMAGE_ID));
         Files.write(maskedClassified, "masked-classified".getBytes(StandardCharsets.UTF_8));
         final String maskedSha = Sha256Files.sha256OfFile(maskedClassified);
 
         final Path reconstructed = layout.imagesReconstructedClassified().resolve(
-                FilenameSanitizer.reconstructedClassifiedFilename(IMAGE_ID, IMAGE_ID));
+                FilenameSanitizer.reconstructedClassifiedFilename(SAMPLE_ID, IMAGE_ID));
         Files.write(reconstructed, "reconstructed".getBytes(StandardCharsets.UTF_8));
 
         writeManifestsAndCsvs(layout, sha, maskedSha);
@@ -322,11 +323,11 @@ class BatchProductionOutputValidatorTest {
         for (final String column : ProductionSchemas.IMAGE_MANIFEST_HEADER) {
             imageRow.add(defaultValueFor(column));
         }
-        imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("sample_id"), IMAGE_ID);
+        imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("sample_id"), SAMPLE_ID);
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("segment_id"), IMAGE_ID);
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("source_rgb_sha256"), sourceSha);
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("masked_classified_filename"),
-                FilenameSanitizer.maskedClassifiedFilename(IMAGE_ID, IMAGE_ID));
+                FilenameSanitizer.maskedClassifiedFilename(SAMPLE_ID, IMAGE_ID));
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("masked_classified_sha256"),
                 maskedClassifiedSha);
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("crop_x_px"), "0");
@@ -336,7 +337,7 @@ class BatchProductionOutputValidatorTest {
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("pixel_width_um"), "1.5");
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("pixel_height_um"), "1.5");
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("reconstructed_classified_filename"),
-                FilenameSanitizer.reconstructedClassifiedFilename(IMAGE_ID, IMAGE_ID));
+                FilenameSanitizer.reconstructedClassifiedFilename(SAMPLE_ID, IMAGE_ID));
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("classification_run_id"), "class-run-1");
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("reconstruction_run_id"), "recon-run-1");
         ProductionCsvStore.writeTableAtomically(
@@ -347,7 +348,7 @@ class BatchProductionOutputValidatorTest {
         for (final String column : ProductionSchemas.SEGMENT_MANIFEST_HEADER) {
             segmentRow.add(defaultValueFor(column));
         }
-        segmentRow.set(ProductionSchemas.SEGMENT_MANIFEST_HEADER.indexOf("sample_id"), IMAGE_ID);
+        segmentRow.set(ProductionSchemas.SEGMENT_MANIFEST_HEADER.indexOf("sample_id"), SAMPLE_ID);
         segmentRow.set(ProductionSchemas.SEGMENT_MANIFEST_HEADER.indexOf("segment_id"), IMAGE_ID);
         ProductionCsvStore.writeTableAtomically(
                 layout.segmentManifest(), ProductionSchemas.SEGMENT_MANIFEST_HEADER,
@@ -356,15 +357,15 @@ class BatchProductionOutputValidatorTest {
         final List<String> classificationRunRow = processingRunRow(
                 ProductionSchemas.ProcessingStage.TILED_CLASSIFICATION,
                 ProductionSchemas.RunStatus.SUCCESS,
-                FilenameSanitizer.originalRgbFilename(IMAGE_ID, IMAGE_ID),
-                FilenameSanitizer.maskedClassifiedFilename(IMAGE_ID, IMAGE_ID),
+                FilenameSanitizer.originalRgbFilename(SAMPLE_ID, IMAGE_ID),
+                FilenameSanitizer.maskedClassifiedFilename(SAMPLE_ID, IMAGE_ID),
                 RCsvSupport.NA, RCsvSupport.NA, RCsvSupport.NA, RCsvSupport.NA, RCsvSupport.NA);
         classificationRunRow.set(ProductionSchemas.PROCESSING_RUNS_HEADER.indexOf("run_id"), "class-run-1");
         final List<String> reconstructionRunRow = processingRunRow(
                 ProductionSchemas.ProcessingStage.ALL_LUMINA_RECONSTRUCTION,
                 ProductionSchemas.RunStatus.SUCCESS,
-                FilenameSanitizer.maskedClassifiedFilename(IMAGE_ID, IMAGE_ID),
-                FilenameSanitizer.reconstructedClassifiedFilename(IMAGE_ID, IMAGE_ID),
+                FilenameSanitizer.maskedClassifiedFilename(SAMPLE_ID, IMAGE_ID),
+                FilenameSanitizer.reconstructedClassifiedFilename(SAMPLE_ID, IMAGE_ID),
                 "1000", "12", "10", "3", "42");
         reconstructionRunRow.set(ProductionSchemas.PROCESSING_RUNS_HEADER.indexOf("run_id"), "recon-run-1");
         ProductionCsvStore.writeTableAtomically(
@@ -372,7 +373,7 @@ class BatchProductionOutputValidatorTest {
                 Arrays.asList(classificationRunRow, reconstructionRunRow));
 
         final Path lumenPath = layout.dataLumenMeasurementsPerSegment().resolve(
-                FilenameSanitizer.lumenMeasurementsFilename(IMAGE_ID, IMAGE_ID));
+                FilenameSanitizer.lumenMeasurementsFilename(SAMPLE_ID, IMAGE_ID));
         ProductionCsvStore.writeTableAtomically(
                 lumenPath, ProductionSchemas.LUMEN_MEASUREMENTS_HEADER,
                 Arrays.asList(lumenRow("L000001")));
@@ -382,7 +383,7 @@ class BatchProductionOutputValidatorTest {
 
         final List<String> diagnosticsRow = diagnosticsRow();
         final Path diagnosticsPath = layout.dataDiagnosticsPerSegment().resolve(
-                FilenameSanitizer.artifactDiagnosticsFilename(IMAGE_ID, IMAGE_ID));
+                FilenameSanitizer.artifactDiagnosticsFilename(SAMPLE_ID, IMAGE_ID));
         ProductionCsvStore.writeTableAtomically(
                 diagnosticsPath, ProductionSchemas.ARTIFACT_DIAGNOSTICS_HEADER,
                 Arrays.asList(diagnosticsRow));
@@ -407,7 +408,7 @@ class BatchProductionOutputValidatorTest {
         }
         row.set(ProductionSchemas.PROCESSING_RUNS_HEADER.indexOf("stage"), stage.name());
         row.set(ProductionSchemas.PROCESSING_RUNS_HEADER.indexOf("status"), status.name());
-        row.set(ProductionSchemas.PROCESSING_RUNS_HEADER.indexOf("sample_id"), IMAGE_ID);
+        row.set(ProductionSchemas.PROCESSING_RUNS_HEADER.indexOf("sample_id"), SAMPLE_ID);
         row.set(ProductionSchemas.PROCESSING_RUNS_HEADER.indexOf("segment_id"), IMAGE_ID);
         row.set(ProductionSchemas.PROCESSING_RUNS_HEADER.indexOf("input_filename"), inputFilename);
         row.set(ProductionSchemas.PROCESSING_RUNS_HEADER.indexOf("output_filename"), outputFilename);
@@ -425,7 +426,7 @@ class BatchProductionOutputValidatorTest {
             row.add(defaultValueFor(column));
         }
         row.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("lumen_uid"), lumenUid);
-        row.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("sample_id"), IMAGE_ID);
+        row.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("sample_id"), SAMPLE_ID);
         row.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("segment_id"), IMAGE_ID);
         row.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("area_um2"), "12.5");
         return row;
@@ -434,7 +435,7 @@ class BatchProductionOutputValidatorTest {
     private static List<String> diagnosticsRow() {
         final List<String> header = ProductionSchemas.ARTIFACT_DIAGNOSTICS_HEADER;
         final List<String> row = new ArrayList<String>(Collections.nCopies(header.size(), RCsvSupport.NA));
-        row.set(header.indexOf("sample_id"), IMAGE_ID);
+        row.set(header.indexOf("sample_id"), SAMPLE_ID);
         row.set(header.indexOf("segment_id"), IMAGE_ID);
         row.set(header.indexOf("lumen_uid"), "L000001");
         row.set(header.indexOf("status"), "NO_INTERVAL_SELECTED");

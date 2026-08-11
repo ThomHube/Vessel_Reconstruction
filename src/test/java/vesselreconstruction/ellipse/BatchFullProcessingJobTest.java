@@ -30,7 +30,7 @@ class BatchFullProcessingJobTest {
         final Path input = tempDir.resolve("input");
         Files.createDirectories(batchRoot);
         Files.createDirectories(input);
-        final Path source = input.resolve("010101.tif");
+        final Path source = input.resolve("0101A1.tif");
         Files.write(source, "tiff-bytes".getBytes(StandardCharsets.UTF_8));
         final String sourceSha = Sha256Files.sha256OfFile(source);
         final Path classifier = input.resolve("classifier.model");
@@ -41,14 +41,14 @@ class BatchFullProcessingJobTest {
         final Path datasetRoot = tempDir.resolve("dataset").toAbsolutePath().normalize();
         Files.createDirectories(datasetRoot);
 
-        final Path jobPath = batchRoot.resolve("full/machine_01/010101/attempt_1/job.properties");
+        final Path jobPath = batchRoot.resolve("full/machine_01/0101A1/attempt_1/job.properties");
         Files.createDirectories(jobPath.getParent());
         final BatchFullProcessingJob original = new BatchFullProcessingJob(
                 1,
-                SixDigitSampleId.parse("010101"),
+                CoreSegmentId.parse("0101A1"),
                 "machine_01",
                 source.toAbsolutePath().normalize(),
-                "010101.tif",
+                "0101A1.tif",
                 sourceSha,
                 config.toAbsolutePath().normalize(),
                 SHA64_A,
@@ -59,11 +59,11 @@ class BatchFullProcessingJobTest {
                 1,
                 batchRoot,
                 datasetRoot,
-                batchRoot.resolve("precheck/machine_01/jobs/010101/result.properties"),
+                batchRoot.resolve("precheck/machine_01/jobs/0101A1/result.properties"),
                 batchRoot.resolve("precheck/machine_01/precheck_results.csv"),
-                batchRoot.resolve("full/machine_01/010101/attempt_1/result.properties"),
-                batchRoot.resolve("full/machine_01/010101/attempt_1/stdout.log"),
-                batchRoot.resolve("full/machine_01/010101/attempt_1/stderr.log"),
+                batchRoot.resolve("full/machine_01/0101A1/attempt_1/result.properties"),
+                batchRoot.resolve("full/machine_01/0101A1/attempt_1/stdout.log"),
+                batchRoot.resolve("full/machine_01/0101A1/attempt_1/stderr.log"),
                 BatchFullProcessingStage.CLASSIFICATION);
         original.write(jobPath);
 
@@ -149,7 +149,7 @@ class BatchFullProcessingJobTest {
         final Path input = tempDir.resolve("legacy-input");
         Files.createDirectories(batchRoot);
         Files.createDirectories(input);
-        final Path source = input.resolve("010101.tif");
+        final Path source = input.resolve("0101A1.tif");
         Files.write(source, "bytes".getBytes(StandardCharsets.UTF_8));
         final Path classifier = input.resolve("classifier.model");
         Files.write(classifier, "model".getBytes(StandardCharsets.UTF_8));
@@ -158,10 +158,10 @@ class BatchFullProcessingJobTest {
 
         final BatchFullProcessingJob job = BatchFullProcessingJob.createLegacyCombined(
                 1,
-                SixDigitSampleId.parse("010101"),
+                CoreSegmentId.parse("0101A1"),
                 "machine_01",
                 source.toAbsolutePath().normalize(),
-                "010101.tif",
+                "0101A1.tif",
                 Sha256Files.sha256OfFile(source),
                 batchRoot.resolve("cfg.properties").toAbsolutePath().normalize(),
                 SHA64_A,
@@ -281,7 +281,7 @@ class BatchFullProcessingJobTest {
         final Path input = tempDir.resolve("input-map");
         Files.createDirectories(batchRoot);
         Files.createDirectories(input);
-        final Path source = input.resolve("010102.tif");
+        final Path source = input.resolve("0101A2.tif");
         Files.write(source, "bytes".getBytes(StandardCharsets.UTF_8));
         final Path classifier = input.resolve("classifier.model");
         Files.write(classifier, "model".getBytes(StandardCharsets.UTF_8));
@@ -290,10 +290,10 @@ class BatchFullProcessingJobTest {
 
         final Map<String, String> map = new LinkedHashMap<String, String>();
         map.put(BatchFullProcessingJob.KEY_SCHEMA, "1");
-        map.put(BatchFullProcessingJob.KEY_IMAGE_ID, "010102");
+        map.put(BatchFullProcessingJob.KEY_IMAGE_ID, "0101A2");
         map.put(BatchFullProcessingJob.KEY_MACHINE_ID, "machine_01");
         map.put(BatchFullProcessingJob.KEY_SOURCE_PATH, source.toAbsolutePath().normalize().toString());
-        map.put(BatchFullProcessingJob.KEY_SOURCE_RELATIVE, "010102.tif");
+        map.put(BatchFullProcessingJob.KEY_SOURCE_RELATIVE, "0101A2.tif");
         map.put(BatchFullProcessingJob.KEY_SOURCE_SHA256, Sha256Files.sha256OfFile(source));
         map.put(BatchFullProcessingJob.KEY_CONFIG_PATH,
                 batchRoot.resolve("cfg.properties").toAbsolutePath().normalize().toString());
@@ -308,7 +308,7 @@ class BatchFullProcessingJobTest {
         map.put(BatchFullProcessingJob.KEY_BATCH_ROOT, batchRoot.toString());
         map.put(BatchFullProcessingJob.KEY_DATASET_ROOT, datasetRoot.toString());
         map.put(BatchFullProcessingJob.KEY_PRECHECK_RESULT_PATH,
-                batchRoot.resolve("precheck/machine_01/jobs/010102/result.properties").toString());
+                batchRoot.resolve("precheck/machine_01/jobs/0101A2/result.properties").toString());
         map.put(BatchFullProcessingJob.KEY_PRECHECK_CSV_PATH,
                 batchRoot.resolve("precheck/machine_01/precheck_results.csv").toString());
         map.put(BatchFullProcessingJob.KEY_RESULT_PATH,

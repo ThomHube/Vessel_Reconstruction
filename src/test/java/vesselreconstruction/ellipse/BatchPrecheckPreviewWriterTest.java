@@ -49,7 +49,7 @@ class BatchPrecheckPreviewWriterTest {
         final Path scaleOut = tempDir.resolve("scale_preview.png");
 
         BatchPrecheckPreviewWriter.writeMaskPreview(
-                maskOut, rgbPreview, mask, crop, "010101", true, RCsvSupport.NA);
+                maskOut, rgbPreview, mask, crop, "0101A1", true, RCsvSupport.NA);
 
         final double measured = 40.0;
         final ScaleBarDetection detection = ScaleBarDetection.measured(
@@ -68,7 +68,7 @@ class BatchPrecheckPreviewWriterTest {
                 java.util.Collections.<ScaleBarDetectionCandidate>emptyList());
 
         BatchPrecheckPreviewWriter.writeScaleBarPreview(
-                scaleOut, source, detection, "010101", true, RCsvSupport.NA, 1.095);
+                scaleOut, source, detection, "0101A1", true, RCsvSupport.NA, 1.095);
 
         assertTrue(Files.isRegularFile(maskOut));
         assertTrue(Files.isRegularFile(scaleOut));

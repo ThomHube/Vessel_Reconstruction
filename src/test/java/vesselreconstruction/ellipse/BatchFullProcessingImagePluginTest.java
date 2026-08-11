@@ -35,7 +35,7 @@ class BatchFullProcessingImagePluginTest {
         assertEquals(1, code);
         // Stage-aware loader rejects missing processing_stage before service runs.
         assertFalse(Files.isRegularFile(
-                tempDir.resolve("batch/full/machine_01/010101/attempt_1/result.properties"))
+                tempDir.resolve("batch/full/machine_01/0101A1/attempt_1/result.properties"))
                 || resultExistsBeside(jobPath));
     }
 
@@ -191,7 +191,7 @@ class BatchFullProcessingImagePluginTest {
         final Path input = tempDir.resolve("legacy-input");
         Files.createDirectories(batchRoot);
         Files.createDirectories(input);
-        final Path source = input.resolve("010101.tif");
+        final Path source = input.resolve("0101A1.tif");
         Files.write(source, "bytes".getBytes(StandardCharsets.UTF_8));
         final Path classifier = input.resolve("classifier.model");
         Files.write(classifier, "model".getBytes(StandardCharsets.UTF_8));
@@ -202,10 +202,10 @@ class BatchFullProcessingImagePluginTest {
 
         final BatchFullProcessingJob job = BatchFullProcessingJob.createLegacyCombined(
                 1,
-                SixDigitSampleId.parse("010101"),
+                CoreSegmentId.parse("0101A1"),
                 "machine_01",
                 source.toAbsolutePath().normalize(),
-                "010101.tif",
+                "0101A1.tif",
                 Sha256Files.sha256OfFile(source),
                 config.toAbsolutePath().normalize(),
                 SHA64,
@@ -218,10 +218,10 @@ class BatchFullProcessingImagePluginTest {
                 datasetRoot,
                 batchRoot.resolve("precheck/result.properties"),
                 batchRoot.resolve("precheck/precheck_results.csv"),
-                batchRoot.resolve("full/machine_01/010101/attempt_1/result.properties"),
-                batchRoot.resolve("full/machine_01/010101/attempt_1/stdout.log"),
-                batchRoot.resolve("full/machine_01/010101/attempt_1/stderr.log"));
-        final Path jobPath = batchRoot.resolve("full/machine_01/010101/attempt_1/job.properties");
+                batchRoot.resolve("full/machine_01/0101A1/attempt_1/result.properties"),
+                batchRoot.resolve("full/machine_01/0101A1/attempt_1/stdout.log"),
+                batchRoot.resolve("full/machine_01/0101A1/attempt_1/stderr.log"));
+        final Path jobPath = batchRoot.resolve("full/machine_01/0101A1/attempt_1/job.properties");
         Files.createDirectories(jobPath.getParent());
         job.write(jobPath);
         return jobPath;
@@ -233,7 +233,7 @@ class BatchFullProcessingImagePluginTest {
         final Path input = tempDir.resolve("stage-input-" + stage.name());
         Files.createDirectories(batchRoot);
         Files.createDirectories(input);
-        final Path source = input.resolve("010101.tif");
+        final Path source = input.resolve("0101A1.tif");
         Files.write(source, "bytes".getBytes(StandardCharsets.UTF_8));
         final Path classifier = input.resolve("classifier.model");
         Files.write(classifier, "model".getBytes(StandardCharsets.UTF_8));
@@ -244,15 +244,15 @@ class BatchFullProcessingImagePluginTest {
         Files.write(config, BatchTestConfigs.validPropertiesText().getBytes(StandardCharsets.UTF_8));
         final String configSha = BatchConfiguration.load(config).sha256();
 
-        final Path attempt = batchRoot.resolve("full/machine_01/010101/attempt_1/"
+        final Path attempt = batchRoot.resolve("full/machine_01/0101A1/attempt_1/"
                 + stage.name().toLowerCase());
         Files.createDirectories(attempt);
         final BatchFullProcessingJob job = new BatchFullProcessingJob(
                 1,
-                SixDigitSampleId.parse("010101"),
+                CoreSegmentId.parse("0101A1"),
                 "machine_01",
                 source.toAbsolutePath().normalize(),
-                "010101.tif",
+                "0101A1.tif",
                 Sha256Files.sha256OfFile(source),
                 config.toAbsolutePath().normalize(),
                 configSha,

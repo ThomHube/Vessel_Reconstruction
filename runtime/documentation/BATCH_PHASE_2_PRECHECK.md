@@ -38,10 +38,13 @@ The entry point must **not** construct `new ImageJ(...)` under `--headless` (tha
 
 ## Required TIFF content
 
-- six-digit filename (`PPSSRR.tif` / `.tiff`)
+- production core/segment filename (`PPTTCS.tif` / `.tiff`, e.g. `0101A1.tif`)
 - RGB source
 - automatic sample region suitable for the conservative mask policy
 - red scale bar outside the sample (terminal-tick centerlines preferred)
+
+Portable deployment still uses the previous temporary six-digit checkpoint until
+a later re-pin phase.
 
 ## Configuration thresholds
 

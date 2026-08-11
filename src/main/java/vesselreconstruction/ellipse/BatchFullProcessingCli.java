@@ -437,7 +437,7 @@ public final class BatchFullProcessingCli {
             final BatchFullProcessingStage stage) {
         return new BatchFullProcessingJob(
                 1,
-                SixDigitSampleId.parse(imageId),
+                CoreSegmentId.parse(imageId),
                 machineId,
                 source,
                 sourceRelativePath,
@@ -1021,7 +1021,7 @@ public final class BatchFullProcessingCli {
                 + "  --input-root <path> \\\n"
                 + "  --batch-root <path> \\\n"
                 + "  --machine-id <machine_XX> \\\n"
-                + "  --image-id <PPSSRR> \\\n"
+                + "  --image-id <PPTTCS> \\\n"
                 + "  --config <path> \\\n"
                 + "  --classifier <path> \\\n"
                 + "  --fiji-launcher <path> \\\n"

@@ -54,7 +54,7 @@ public final class BatchPrecheckJob {
     private static final Pattern SHA256_HEX = Pattern.compile("^[0-9a-fA-F]{64}$");
 
     private final int schemaVersion;
-    private final SixDigitSampleId imageId;
+    private final CoreSegmentId imageId;
     private final String machineId;
     private final Path sourcePath;
     private final String sourceRelativePath;
@@ -70,7 +70,7 @@ public final class BatchPrecheckJob {
 
     public BatchPrecheckJob(
             final int schemaVersion,
-            final SixDigitSampleId imageId,
+            final CoreSegmentId imageId,
             final String machineId,
             final Path sourcePath,
             final String sourceRelativePath,
@@ -124,7 +124,7 @@ public final class BatchPrecheckJob {
         if (schema != 1) {
             throw new IllegalArgumentException(KEY_SCHEMA + " must be 1");
         }
-        final SixDigitSampleId imageId = SixDigitSampleId.parse(values.get(KEY_IMAGE_ID));
+        final CoreSegmentId imageId = CoreSegmentId.parse(values.get(KEY_IMAGE_ID));
         final Path batchRoot = Paths.get(values.get(KEY_BATCH_ROOT)).toAbsolutePath().normalize();
         final Path sourcePath = Paths.get(values.get(KEY_SOURCE_PATH)).toAbsolutePath().normalize();
         if (!Files.isRegularFile(sourcePath)) {
@@ -196,7 +196,7 @@ public final class BatchPrecheckJob {
         return schemaVersion;
     }
 
-    public SixDigitSampleId imageId() {
+    public CoreSegmentId imageId() {
         return imageId;
     }
 

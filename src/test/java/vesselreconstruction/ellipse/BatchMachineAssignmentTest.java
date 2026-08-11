@@ -4,7 +4,10 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -12,37 +15,68 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class BatchMachineAssignmentTest {
 
     @Test
-    void eightyFilesThreeMachinesGives272726() {
-        final List<BatchTiffFile> files = fakeFiles(80);
+    void sameCoreSegmentsNeverSplitAcrossMachines() {
+        final List<BatchTiffFile> files = fakeFiles(
+                "0101A1", "0101A2", "0101A3", "0101B1", "0101B2", "0102A1");
+        final List<BatchMachineAssignment.MachineSlice> slices =
+                BatchMachineAssignment.assign(files, 2);
+        assertCoreIntact(slices, "0101A");
+        assertCoreIntact(slices, "0101B");
+        assertCoreIntact(slices, "0102A");
+    }
+
+    @Test
+    void differentCoresCanGoToDifferentMachines() {
+        final List<BatchTiffFile> files = fakeFiles(
+                "0101A1", "0101A2", "0101B1", "0102A1", "0201A1");
         final List<BatchMachineAssignment.MachineSlice> slices =
                 BatchMachineAssignment.assign(files, 3);
         assertEquals(3, slices.size());
-        assertEquals(27, slices.get(0).assignedCount());
-        assertEquals(27, slices.get(1).assignedCount());
-        assertEquals(26, slices.get(2).assignedCount());
-        assertEquals("machine_01", slices.get(0).machineId());
-        assertEquals("machine_02", slices.get(1).machineId());
-        assertEquals("machine_03", slices.get(2).machineId());
+        assertTrue(slices.get(0).assignedCount() > 0);
+        assertTrue(slices.get(1).assignedCount() > 0);
+        // With five cores and three machines, at least two machines get work and
+        // cores remain intact while loads stay as balanced as core sizes allow.
+        assertCoreIntact(slices, "0101A");
+        assertCoreIntact(slices, "0101B");
+        assertCoreIntact(slices, "0102A");
+        assertCoreIntact(slices, "0201A");
     }
 
     @Test
-    void contiguousAssignmentsAndGlobalOrder() {
-        final List<BatchTiffFile> files = fakeFiles(5);
-        final List<BatchMachineAssignment.MachineSlice> slices =
+    void everyImageAssignedOnceDeterministically() {
+        final List<BatchTiffFile> files = fakeFiles(
+                "0101A1", "0101A2", "0101B1", "0102A1", "0201A1");
+        final List<BatchMachineAssignment.MachineSlice> first =
                 BatchMachineAssignment.assign(files, 2);
-        assertEquals(3, slices.get(0).assignedCount());
-        assertEquals(2, slices.get(1).assignedCount());
-        assertEquals("010101", slices.get(0).files().get(0).id().imageId());
-        assertEquals("010201", slices.get(0).files().get(2).id().imageId());
-        assertEquals("010202", slices.get(1).files().get(0).id().imageId());
-        assertEquals("010301", slices.get(1).files().get(1).id().imageId());
-        // Contiguous: last of first + 1 equals first of second in global list order.
-        assertEquals(files.get(3).id(), slices.get(1).files().get(0).id());
+        final List<BatchMachineAssignment.MachineSlice> second =
+                BatchMachineAssignment.assign(files, 2);
+        assertEquals(imageIds(first), imageIds(second));
+        final Set<String> seen = new HashSet<String>();
+        int total = 0;
+        for (final BatchMachineAssignment.MachineSlice slice : first) {
+            for (final BatchTiffFile file : slice.files()) {
+                assertTrue(seen.add(file.id().imageId()), "duplicate " + file.id());
+                total++;
+            }
+        }
+        assertEquals(files.size(), total);
     }
 
     @Test
-    void moreMachinesThanFilesAllowsEmpty() {
-        final List<BatchTiffFile> files = fakeFiles(3);
+    void oneMachineReceivesAllImages() {
+        final List<BatchTiffFile> files = fakeFiles(
+                "0101A1", "0101A2", "0101B1", "0102A1");
+        final List<BatchMachineAssignment.MachineSlice> slices =
+                BatchMachineAssignment.assign(files, 1);
+        assertEquals(1, slices.size());
+        assertEquals(4, slices.get(0).assignedCount());
+        assertEquals("0101A1", slices.get(0).files().get(0).id().imageId());
+        assertEquals("0102A1", slices.get(0).files().get(3).id().imageId());
+    }
+
+    @Test
+    void moreMachinesThanCoresAllowsEmpty() {
+        final List<BatchTiffFile> files = fakeFiles("0101A1", "0101B1", "0102A1");
         final List<BatchMachineAssignment.MachineSlice> slices =
                 BatchMachineAssignment.assign(files, 5);
         assertEquals(5, slices.size());
@@ -53,43 +87,72 @@ class BatchMachineAssignmentTest {
         assertEquals(0, slices.get(4).assignedCount());
         assertEquals(RCsvSupport.NA, slices.get(3).firstImageIdOrNa());
         assertEquals(RCsvSupport.NA, slices.get(4).lastImageIdOrNa());
+        assertEquals("machine_01", slices.get(0).machineId());
+        assertEquals("machine_05", slices.get(4).machineId());
     }
 
     @Test
-    void threeFilesOneAndTwoMachines() {
-        final List<BatchTiffFile> files = fakeFiles(3);
-        assertEquals(3, BatchMachineAssignment.assign(files, 1).get(0).assignedCount());
-        final List<BatchMachineAssignment.MachineSlice> two =
-                BatchMachineAssignment.assign(files, 2);
-        assertEquals(2, two.get(0).assignedCount());
-        assertEquals(1, two.get(1).assignedCount());
+    void fiveSegmentCoreRemainsIntact() {
+        final List<BatchTiffFile> files = fakeFiles(
+                "0101A1", "0101A2", "0101A3", "0101A4", "0101A5",
+                "0101B1", "0102A1");
+        final List<BatchMachineAssignment.MachineSlice> slices =
+                BatchMachineAssignment.assign(files, 3);
+        assertCoreIntact(slices, "0101A");
+        final List<String> coreA = segmentsOnSameMachine(slices, "0101A");
+        assertEquals(Arrays.asList("0101A1", "0101A2", "0101A3", "0101A4", "0101A5"), coreA);
     }
 
-    @Test
-    void sizesDifferByAtMostOne() {
-        for (int n = 0; n <= 20; n++) {
-            for (int m = 1; m <= 7; m++) {
-                final List<BatchMachineAssignment.MachineSlice> slices =
-                        BatchMachineAssignment.assign(fakeFiles(n), m);
-                int min = Integer.MAX_VALUE;
-                int max = Integer.MIN_VALUE;
-                int sum = 0;
-                for (final BatchMachineAssignment.MachineSlice slice : slices) {
-                    min = Math.min(min, slice.assignedCount());
-                    max = Math.max(max, slice.assignedCount());
-                    sum += slice.assignedCount();
+    private static void assertCoreIntact(
+            final List<BatchMachineAssignment.MachineSlice> slices,
+            final String coreId) {
+        int machinesWithCore = 0;
+        for (final BatchMachineAssignment.MachineSlice slice : slices) {
+            boolean present = false;
+            for (final BatchTiffFile file : slice.files()) {
+                if (coreId.equals(file.id().coreId())) {
+                    present = true;
+                    break;
                 }
-                assertEquals(n, sum);
-                assertTrue(max - min <= 1, "n=" + n + " m=" + m);
+            }
+            if (present) {
+                machinesWithCore++;
             }
         }
+        assertEquals(1, machinesWithCore, "core " + coreId + " split across machines");
     }
 
-    private static List<BatchTiffFile> fakeFiles(final int count) {
-        final List<SixDigitSampleId> expected = SixDigitSampleId.expectedCompleteSet();
-        final List<BatchTiffFile> files = new ArrayList<BatchTiffFile>(count);
-        for (int i = 0; i < count; i++) {
-            final SixDigitSampleId id = expected.get(i);
+    private static List<String> segmentsOnSameMachine(
+            final List<BatchMachineAssignment.MachineSlice> slices,
+            final String coreId) {
+        for (final BatchMachineAssignment.MachineSlice slice : slices) {
+            final List<String> ids = new ArrayList<String>();
+            for (final BatchTiffFile file : slice.files()) {
+                if (coreId.equals(file.id().coreId())) {
+                    ids.add(file.id().imageId());
+                }
+            }
+            if (!ids.isEmpty()) {
+                return ids;
+            }
+        }
+        throw new AssertionError("core not found: " + coreId);
+    }
+
+    private static List<String> imageIds(final List<BatchMachineAssignment.MachineSlice> slices) {
+        final List<String> ids = new ArrayList<String>();
+        for (final BatchMachineAssignment.MachineSlice slice : slices) {
+            for (final BatchTiffFile file : slice.files()) {
+                ids.add(file.id().imageId());
+            }
+        }
+        return ids;
+    }
+
+    private static List<BatchTiffFile> fakeFiles(final String... imageIds) {
+        final List<BatchTiffFile> files = new ArrayList<BatchTiffFile>(imageIds.length);
+        for (int i = 0; i < imageIds.length; i++) {
+            final CoreSegmentId id = CoreSegmentId.parse(imageIds[i]);
             final String name = id.imageId() + ".tif";
             files.add(new BatchTiffFile(
                     id,

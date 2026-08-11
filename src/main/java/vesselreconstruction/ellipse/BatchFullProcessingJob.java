@@ -111,7 +111,7 @@ public final class BatchFullProcessingJob {
     private static final Pattern MACHINE_ID_PATTERN = Pattern.compile("^machine_\\d+$");
 
     private final int schemaVersion;
-    private final SixDigitSampleId imageId;
+    private final CoreSegmentId imageId;
     private final String machineId;
     private final Path sourcePath;
     private final String sourceRelativePath;
@@ -139,7 +139,7 @@ public final class BatchFullProcessingJob {
      */
     public BatchFullProcessingJob(
             final int schemaVersion,
-            final SixDigitSampleId imageId,
+            final CoreSegmentId imageId,
             final String machineId,
             final Path sourcePath,
             final String sourceRelativePath,
@@ -173,7 +173,7 @@ public final class BatchFullProcessingJob {
      */
     public static BatchFullProcessingJob createLegacyCombined(
             final int schemaVersion,
-            final SixDigitSampleId imageId,
+            final CoreSegmentId imageId,
             final String machineId,
             final Path sourcePath,
             final String sourceRelativePath,
@@ -202,7 +202,7 @@ public final class BatchFullProcessingJob {
 
     private BatchFullProcessingJob(
             final int schemaVersion,
-            final SixDigitSampleId imageId,
+            final CoreSegmentId imageId,
             final String machineId,
             final Path sourcePath,
             final String sourceRelativePath,
@@ -323,7 +323,7 @@ public final class BatchFullProcessingJob {
             throw new IllegalArgumentException(
                     KEY_MACHINE_ID + " must match machine_\\d+: " + machineId);
         }
-        final SixDigitSampleId imageId = SixDigitSampleId.parse(values.get(KEY_IMAGE_ID));
+        final CoreSegmentId imageId = CoreSegmentId.parse(values.get(KEY_IMAGE_ID));
 
         final Path batchRoot = Paths.get(values.get(KEY_BATCH_ROOT)).toAbsolutePath().normalize();
         final Path datasetRoot = Paths.get(values.get(KEY_DATASET_ROOT)).toAbsolutePath().normalize();
@@ -472,7 +472,7 @@ public final class BatchFullProcessingJob {
         return schemaVersion;
     }
 
-    public SixDigitSampleId imageId() {
+    public CoreSegmentId imageId() {
         return imageId;
     }
 

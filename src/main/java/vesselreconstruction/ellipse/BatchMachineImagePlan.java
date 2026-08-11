@@ -178,7 +178,7 @@ public final class BatchMachineImagePlan {
             if (sequenceNumber < 1) {
                 throw new IllegalArgumentException("sequenceNumber must be set");
             }
-            SixDigitSampleId.parse(imageId);
+            CoreSegmentId.parse(imageId);
             if (machineId == null || machineId.trim().isEmpty()) {
                 throw new IllegalArgumentException("machineId must not be blank");
             }
