@@ -105,6 +105,8 @@
 
         <junit.jupiter.version>5.10.2</junit.jupiter.version>
         <maven.surefire.version>3.2.5</maven.surefire.version>
+
+        <project.build.outputTimestamp>2026-08-11T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <dependencies>
@@ -142,6 +144,17 @@
         <finalName>VesselReconstructionEllipse-0.1.0-SNAPSHOT</finalName>
 
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Implementation-Date>${project.build.outputTimestamp}</Implementation-Date>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
