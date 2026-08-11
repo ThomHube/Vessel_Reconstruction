@@ -15,10 +15,12 @@ readonly EXPECTED_CLASSIFIER_SHA256='d109f00d1ca16447bc433303cb6f5ec1a5a9d27a321
 readonly EXPECTED_PLUGIN_SHA256='81fa019d40ceb085d28ba6b82a5972615919a115a28014e6bbdebed3750a6cde'
 readonly EXPECTED_LAUNCHER_SHA256='8e2bfcf6659e5d7387b210ea10bd647546485b702f7c34511d809c0e4971de1b'
 readonly EXPECTED_MONITOR_SHA256='e6e4c953ca0d6eabc6fd852a25921b9c53b25dea5894baefe3066ca2c77c62dd'
+readonly EXPECTED_STARTER_SHA256='0831e6decd1b3b3514933ea3219cc0e6e551cbacb9dd465f749b69f486b2645d'
 readonly PLUGIN_JAR_NAME='VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar'
 readonly CLASSIFIER_NAME='Classifier9.model'
 readonly LAUNCHER_NAME='run_lumen_machine.sh'
 readonly MONITOR_NAME='monitor_lumen_machine.sh'
+readonly STARTER_NAME='start_lumen_processing.sh'
 
 readonly EXIT_USAGE=2
 readonly EXIT_VALIDATION=3
@@ -34,6 +36,7 @@ INSTALL_ROOT=''
 MACHINE_ID=''
 SOURCE_LAUNCHER_PATH=''
 SOURCE_MONITOR_PATH=''
+SOURCE_STARTER_PATH=''
 
 cleanup_staging() {
   local staging="${STAGING_ROOT:-}"
@@ -174,6 +177,13 @@ verify_canonical_inputs() {
     "${SOURCE_MONITOR_PATH}" \
     "${EXPECTED_MONITOR_SHA256}" \
     "portable monitor"
+
+  SOURCE_STARTER_PATH="${INSTALLER_DIR}/${STARTER_NAME}"
+  require_file "${SOURCE_STARTER_PATH}" "portable starter (${STARTER_NAME})"
+  verify_sha256 \
+    "${SOURCE_STARTER_PATH}" \
+    "${EXPECTED_STARTER_SHA256}" \
+    "portable starter"
 }
 
 prop_value() {
@@ -219,6 +229,21 @@ stage_and_verify_monitor() {
     "staged portable monitor"
   if ! bash -n -- "${staging_monitor}"; then
     fail "${EXIT_VERIFY}" "Staged monitor failed bash -n: ${staging_monitor}"
+  fi
+}
+
+stage_and_verify_starter() {
+  local staging_starter="${STAGING_ROOT}/${STARTER_NAME}"
+  cp -f -- "${SOURCE_STARTER_PATH}" "${staging_starter}"
+  chmod 755 -- "${staging_starter}"
+  [[ -x "${staging_starter}" ]] \
+    || fail "${EXIT_VERIFY}" "Staged starter is not executable: ${staging_starter}"
+  verify_sha256 \
+    "${staging_starter}" \
+    "${EXPECTED_STARTER_SHA256}" \
+    "staged portable starter"
+  if ! bash -n -- "${staging_starter}"; then
+    fail "${EXIT_VERIFY}" "Staged starter failed bash -n: ${staging_starter}"
   fi
 }
 
@@ -355,6 +380,7 @@ write_installation_properties() {
   local work_root="${10}"
   local launcher_path="${install_root}/${LAUNCHER_NAME}"
   local monitor_path="${install_root}/${MONITOR_NAME}"
+  local starter_path="${install_root}/${STARTER_NAME}"
   local timestamp_ms
   timestamp_ms="$(date +%s%3N 2>/dev/null || echo "$(($(date +%s) * 1000))")"
 
@@ -367,6 +393,7 @@ classifier_sha256=${EXPECTED_CLASSIFIER_SHA256}
 plugin_sha256=${EXPECTED_PLUGIN_SHA256}
 launcher_sha256=${EXPECTED_LAUNCHER_SHA256}
 monitor_sha256=${EXPECTED_MONITOR_SHA256}
+starter_sha256=${EXPECTED_STARTER_SHA256}
 installation_root=${install_root}
 project_root=${project_root}
 fiji_root=${fiji_root}
@@ -378,6 +405,7 @@ config_path=${config_path}
 work_root=${work_root}
 launcher_path=${launcher_path}
 monitor_path=${monitor_path}
+starter_path=${starter_path}
 installation_timestamp_epoch_ms=${timestamp_ms}
 EOF
 }
@@ -398,13 +426,15 @@ check_existing_installation() {
   fi
 
   local existing_commit existing_machine launcher_path launcher_sha
-  local monitor_path monitor_sha
+  local monitor_path monitor_sha starter_path starter_sha
   existing_commit="$(prop_value "${props}" "production_commit" || true)"
   existing_machine="$(prop_value "${props}" "machine_id" || true)"
   launcher_path="$(prop_value "${props}" "launcher_path" || true)"
   launcher_sha="$(prop_value "${props}" "launcher_sha256" || true)"
   monitor_path="$(prop_value "${props}" "monitor_path" || true)"
   monitor_sha="$(prop_value "${props}" "monitor_sha256" || true)"
+  starter_path="$(prop_value "${props}" "starter_path" || true)"
+  starter_sha="$(prop_value "${props}" "starter_sha256" || true)"
 
   if [[ "${existing_commit}" != "${EXPECTED_COMMIT}" ]]; then
     fail "${EXIT_INSTALL}" \
@@ -419,6 +449,10 @@ check_existing_installation() {
     fail "${EXIT_INSTALL}" \
       "Existing installation at ${install_root} predates the monitor-integrated installer (missing monitor_path/monitor_sha256). Recreate it intentionally; this installer will not delete or upgrade it automatically."
   fi
+  if [[ -z "${starter_path}" || -z "${starter_sha}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation at ${install_root} predates the starter-integrated installer (missing starter_path/starter_sha256). Recreate it intentionally; this installer will not delete or upgrade it automatically."
+  fi
   if [[ "${launcher_sha}" != "${EXPECTED_LAUNCHER_SHA256}" ]]; then
     fail "${EXIT_INSTALL}" \
       "Existing installation launcher_sha256 mismatch at ${install_root}: expected ${EXPECTED_LAUNCHER_SHA256}, found ${launcher_sha}"
@@ -427,6 +461,10 @@ check_existing_installation() {
     fail "${EXIT_INSTALL}" \
       "Existing installation monitor_sha256 mismatch at ${install_root}: expected ${EXPECTED_MONITOR_SHA256}, found ${monitor_sha}"
   fi
+  if [[ "${starter_sha}" != "${EXPECTED_STARTER_SHA256}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation starter_sha256 mismatch at ${install_root}: expected ${EXPECTED_STARTER_SHA256}, found ${starter_sha}"
+  fi
   if [[ "${launcher_path}" != "${install_root}/${LAUNCHER_NAME}" ]]; then
     fail "${EXIT_INSTALL}" \
       "Existing installation launcher_path mismatch: expected ${install_root}/${LAUNCHER_NAME}, found ${launcher_path}"
@@ -434,6 +472,10 @@ check_existing_installation() {
   if [[ "${monitor_path}" != "${install_root}/${MONITOR_NAME}" ]]; then
     fail "${EXIT_INSTALL}" \
       "Existing installation monitor_path mismatch: expected ${install_root}/${MONITOR_NAME}, found ${monitor_path}"
+  fi
+  if [[ "${starter_path}" != "${install_root}/${STARTER_NAME}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation starter_path mismatch: expected ${install_root}/${STARTER_NAME}, found ${starter_path}"
   fi
   if [[ ! -f "${launcher_path}" ]]; then
     fail "${EXIT_INSTALL}" \
@@ -450,6 +492,14 @@ check_existing_installation() {
   if [[ ! -x "${monitor_path}" ]]; then
     fail "${EXIT_INSTALL}" \
       "Existing installation monitor is not executable: ${monitor_path}"
+  fi
+  if [[ ! -f "${starter_path}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation missing starter file: ${starter_path}"
+  fi
+  if [[ ! -x "${starter_path}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation starter is not executable: ${starter_path}"
   fi
   local actual_launcher_sha
   actual_launcher_sha="$(sha256_of "${launcher_path}")"
@@ -471,6 +521,16 @@ check_existing_installation() {
     fail "${EXIT_INSTALL}" \
       "Existing installation monitor failed bash -n: ${monitor_path}"
   fi
+  local actual_starter_sha
+  actual_starter_sha="$(sha256_of "${starter_path}")"
+  if [[ "${actual_starter_sha}" != "${EXPECTED_STARTER_SHA256}" ]]; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation starter SHA-256 mismatch: expected ${EXPECTED_STARTER_SHA256}, found ${actual_starter_sha}"
+  fi
+  if ! bash -n -- "${starter_path}"; then
+    fail "${EXIT_INSTALL}" \
+      "Existing installation starter failed bash -n: ${starter_path}"
+  fi
 
   echo "LUMEN INSTALLATION ALREADY PRESENT"
   echo "machine: ${existing_machine:-unknown}"
@@ -478,6 +538,7 @@ check_existing_installation() {
   echo "install root: ${install_root}"
   echo "launcher: verified"
   echo "monitor: verified"
+  echo "starter: verified"
   echo "No changes made."
   exit 0
 }
@@ -546,6 +607,8 @@ main() {
   stage_and_verify_launcher
   echo "Installing portable monitor..."
   stage_and_verify_monitor
+  echo "Installing portable starter..."
+  stage_and_verify_starter
 
   echo "Extracting Fiji..."
   extract_normalized_dir \
@@ -647,6 +710,7 @@ classifier: verified
 source checkpoint: verified
 launcher: verified
 monitor: verified
+starter: verified
 EOF
 }
 
