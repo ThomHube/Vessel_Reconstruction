@@ -1,10 +1,10 @@
-# Portable Machine Package Import (Phase 4C2C)
+# Portable Machine Package Import (Phase 4C4B1)
 
 Import **one** verified machine package into an installed laboratory
 `LumenRuntime` after:
 
-1. `install_machine.sh` has installed `$HOME/LumenRuntime/0c1c326`
-2. Phase 4C2A/4C2B have prepared packages on the external drive
+1. `install_machine.sh` has installed `$HOME/LumenRuntime/9a53b84`
+2. Central prepare/package scripts have produced schema-2 PPTTCS packages
 
 ## Usage
 
@@ -16,20 +16,29 @@ The package machine ID must **exactly** match the installed machine ID from
 `installation.properties`. A `machine_01` package will not import onto
 `machine_02`.
 
+Requires:
+
+- `package.schema_version=2`
+- `manifest.schema_version=2`
+- PPTTCS `first_image_id` / `last_image_id`
+- schema-2 machine manifest parsed by header name
+
 ## What happens
 
 1. Verify the local installation (`installation.properties`, work root).
 2. Reject any symbolic links in the source package.
 3. Parse `package.properties` (never sourced as shell).
 4. Validate every path in `package_checksums.sha256`, then run `sha256sum -c`.
-5. Re-check config/manifest/TIFF hashes against the package metadata.
+5. Re-check config/manifest/TIFF hashes and PPTTCS identity against the package.
 6. Copy (never move) contents into a staging directory under
    `work/<machine-id>/.job_import_staging_<pid>`.
 7. Re-verify the staging copy, then atomically publish:
 
 ```text
-$HOME/LumenRuntime/0c1c326/work/machine_XX/job/
+$HOME/LumenRuntime/9a53b84/work/machine_XX/job/
 ```
+
+Generated `import.properties` uses `import.schema_version=2`.
 
 ## Idempotence
 

@@ -69,10 +69,9 @@ PPTTCS (no fixed expected ID list). Use `false`.
 
 ## Portable deployment note
 
-The validated portable installer/launcher layer is still pinned to the previous
-scientific checkpoint and temporary six-digit portable workflow. Portable
-migration/re-pinning follows in a later phase after this Java identity model is
-committed as a new scientific checkpoint.
+Portable scripts target scientific checkpoint `9a53b84` with PPTTCS identity
+and batch-manifest `schema_version=2`. Canonical drive assets for `9a53b84`
+must be published before laboratory installation.
 
 ## Outputs
 

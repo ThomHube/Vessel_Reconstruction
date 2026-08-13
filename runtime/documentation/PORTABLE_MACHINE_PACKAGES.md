@@ -1,13 +1,20 @@
-# Portable Machine Packages (Phase 4C2B)
+# Portable Machine Packages (Phase 4C4B1)
 
 Create machine-specific distribution packages from an **already validated**
-central job produced by Phase 4C2A (`prepare_master_batch.sh`).
+central job produced by `prepare_master_batch.sh` (PPTTCS / manifest schema 2).
 
 ## Usage
 
 ```bash
 ./create_machine_packages.sh <job-root>
 ```
+
+Requires `preparation.properties` with:
+
+- `portable_plan_schema_version=2`
+- `manifest_schema_version=2`
+- positive actual `valid_tiff_count`
+- PPTTCS `first_image_id` / `last_image_id` derived from the master plan
 
 Creates:
 
@@ -25,29 +32,34 @@ Creates:
 
 If `machine_packages/` already exists, the script fails and leaves it unchanged.
 
+Every configured machine must receive at least one physical core (non-empty
+manifest). Empty machine slices fail clearly so operators can reduce
+`machines.count`.
+
 ## What each package contains
 
-- only the TIFFs assigned to that machine
-- the authoritative machine manifest (byte-for-byte)
+- only the TIFFs assigned to that machine (core groups are never split)
+- the authoritative schema-2 machine manifest (byte-for-byte)
 - the authoritative `production_batch.properties` (exact file copy)
-- `package.properties` provenance (checkpoint, counts, hashes) **without**
+- `package.properties` provenance with `package.schema_version=2` and
+  `manifest.schema_version=2` (checkpoint, counts, hashes) **without**
   mount-specific absolute paths
 - `package_checksums.sha256` for post-transfer verification via `sha256sum -c`
 
 ## Integrity
 
-Before and after each TIFF copy, SHA-256 must match `source_sha256` from the
-machine manifest. Source TIFFs under `input_root` are never modified.
-
-`package_checksums.sha256` uses paths relative to the machine package root and
-is verified with `sha256sum -c` before publication.
+Manifest rows are parsed by header name. Each row must have
+`schema_version=2`, a valid PPTTCS `image_id`, and identity fields that match
+decomposition of that ID. Before and after each TIFF copy, SHA-256 must match
+`source_sha256` from the machine manifest. Source TIFFs under `input_root` are
+never modified.
 
 ## What this phase does not do
 
 - no Fiji / Maven / Java
 - no precheck
 - no classification or reconstruction
-- no import into a laboratory `LumenRuntime` install (next phase)
+- no import into a laboratory `LumenRuntime` install (next step)
 
 ## Next step
 

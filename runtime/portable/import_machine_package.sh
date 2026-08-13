@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 4C2C: import one verified machine package into an installed lab runtime.
+# Phase 4C4B1: import one verified machine package (PPTTCS / schema-2).
 # No Fiji, Maven, precheck, or image processing.
 #
 # Usage:
@@ -7,8 +7,8 @@
 #
 set -euo pipefail
 
-readonly EXPECTED_COMMIT='0c1c326fc07f7e049f1d359226e810c7b8db24ce'
-readonly EXPECTED_COMMIT_SHORT='0c1c326'
+readonly EXPECTED_COMMIT='9a53b843347b909dcc1762157aaf1d0c96126083'
+readonly EXPECTED_COMMIT_SHORT='9a53b84'
 readonly LUMEN_RUNTIME_ROOT="${HOME}/LumenRuntime/${EXPECTED_COMMIT_SHORT}"
 
 readonly EXIT_USAGE=2
@@ -22,7 +22,6 @@ WORK_ROOT=''
 STAGING_ROOT=''
 FINAL_JOB=''
 
-# Package properties
 PKG_MACHINE_ID=''
 PKG_MACHINE_COUNT=''
 PKG_ASSIGNED_COUNT=''
@@ -34,6 +33,128 @@ PKG_MASTER_MANIFEST_SHA=''
 PKG_MACHINE_MANIFEST_SHA=''
 PKG_PROPERTIES_SHA=''
 PKG_CHECKSUMS_SHA=''
+
+
+readonly CANONICAL_MANIFEST_HEADER='schema_version,order_index,image_id,plot_id,tree_id,core_label,core_id,segment_order,source_filename,source_relative_path,source_sha256,source_size_bytes,assigned_machine,assignment_index,status,attempt_count,last_start_timestamp,last_end_timestamp,last_exit_code,last_message,tile_profile_index,dataset_shard_relative_path,configuration_sha256'
+readonly MANIFEST_SCHEMA_VERSION='2'
+
+# Populated by resolve_manifest_header / split_csv_simple.
+CSV_FIELDS=()
+declare -A CSV_IDX=()
+DERIVED_PLOT_ID=''
+DERIVED_TREE_ID=''
+DERIVED_CORE_LABEL=''
+DERIVED_CORE_ID=''
+DERIVED_SEGMENT_ORDER=''
+
+is_core_segment_image_id() {
+  local id="${1-}"
+  # Exact six characters; no trim, no case fold, no repair.
+  [[ "${#id}" -eq 6 ]] || return 1
+  [[ "${id}" =~ ^[0-9]{4}[AB][1-5]$ ]] || return 1
+  local plot="${id:0:2}"
+  local tree="${id:2:2}"
+  [[ "${plot}" != "00" && "${tree}" != "00" ]] || return 1
+  return 0
+}
+
+derive_core_segment_fields() {
+  local id="$1"
+  DERIVED_PLOT_ID="${id:0:2}"
+  DERIVED_TREE_ID="${id:2:2}"
+  DERIVED_CORE_LABEL="${id:4:1}"
+  DERIVED_CORE_ID="${id:0:5}"
+  DERIVED_SEGMENT_ORDER="${id:5:1}"
+}
+
+image_id_sort_key() {
+  local id="$1"
+  local core_rank=0
+  [[ "${id:4:1}" == "B" ]] && core_rank=1
+  printf '%s%s%d%s' "${id:0:2}" "${id:2:2}" "${core_rank}" "${id:5:1}"
+}
+
+split_csv_simple() {
+  local line="$1"
+  CSV_FIELDS=()
+  local IFS=','
+  # shellcheck disable=SC2206
+  CSV_FIELDS=(${line})
+  unset IFS
+}
+
+resolve_manifest_header() {
+  local header_line="$1"
+  local label="$2"
+  header_line="${header_line%$'\r'}"
+  [[ -n "${header_line}" ]] || fail "${EXIT_VERIFY}" "${label}: manifest header missing"
+  if [[ "${header_line}" != "${CANONICAL_MANIFEST_HEADER}" ]]; then
+    fail "${EXIT_VERIFY}" \
+      "${label}: manifest header is not the exact schema-2 canonical header"
+  fi
+  split_csv_simple "${header_line}"
+  CSV_IDX=()
+  local i name
+  for i in "${!CSV_FIELDS[@]}"; do
+    name="${CSV_FIELDS[$i]}"
+    if [[ -n "${CSV_IDX[${name}]+x}" ]]; then
+      fail "${EXIT_VERIFY}" "${label}: duplicate header field: ${name}"
+    fi
+    CSV_IDX["${name}"]=$i
+  done
+  local required
+  for required in \
+      schema_version order_index image_id plot_id tree_id core_label core_id \
+      segment_order source_filename source_relative_path source_sha256 \
+      source_size_bytes assigned_machine assignment_index configuration_sha256
+  do
+    if [[ -z "${CSV_IDX[${required}]+x}" ]]; then
+      fail "${EXIT_VERIFY}" "${label}: missing required header field: ${required}"
+    fi
+  done
+}
+
+csv_get() {
+  local name="$1"
+  printf '%s' "${CSV_FIELDS[${CSV_IDX[${name}]}]:-}"
+}
+
+validate_row_identity() {
+  local label="$1"
+  local image_id plot_id tree_id core_label core_id segment_order schema_version
+  image_id="$(csv_get image_id)"
+  plot_id="$(csv_get plot_id)"
+  tree_id="$(csv_get tree_id)"
+  core_label="$(csv_get core_label)"
+  core_id="$(csv_get core_id)"
+  segment_order="$(csv_get segment_order)"
+  schema_version="$(csv_get schema_version)"
+
+  [[ "${schema_version}" == "${MANIFEST_SCHEMA_VERSION}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: schema_version must be ${MANIFEST_SCHEMA_VERSION}, found ${schema_version} (image ${image_id})"
+
+  is_core_segment_image_id "${image_id}" \
+    || fail "${EXIT_VERIFY}" "${label}: invalid PPTTCS image_id: ${image_id}"
+
+  derive_core_segment_fields "${image_id}"
+  [[ "${plot_id}" == "${DERIVED_PLOT_ID}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: plot_id mismatch for ${image_id}: row=${plot_id} derived=${DERIVED_PLOT_ID}"
+  [[ "${tree_id}" == "${DERIVED_TREE_ID}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: tree_id mismatch for ${image_id}: row=${tree_id} derived=${DERIVED_TREE_ID}"
+  [[ "${core_label}" == "${DERIVED_CORE_LABEL}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: core_label mismatch for ${image_id}: row=${core_label} derived=${DERIVED_CORE_LABEL}"
+  [[ "${core_id}" == "${DERIVED_CORE_ID}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: core_id mismatch for ${image_id}: row=${core_id} derived=${DERIVED_CORE_ID}"
+  [[ "${segment_order}" == "${DERIVED_SEGMENT_ORDER}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: segment_order mismatch for ${image_id}: row=${segment_order} derived=${DERIVED_SEGMENT_ORDER}"
+}
+
 
 cleanup_staging() {
   local staging="${STAGING_ROOT:-}"
@@ -85,9 +206,10 @@ usage() {
 Usage: ./import_machine_package.sh <machine-package-root>
 
 Imports one verified machine package into:
-  $HOME/LumenRuntime/0c1c326/work/<machine-id>/job
+  $HOME/LumenRuntime/9a53b84/work/<machine-id>/job
 
 Does not run precheck or processing.
+Requires package.schema_version=2 and manifest.schema_version=2.
 EOF
 }
 
@@ -113,7 +235,6 @@ require_dir() {
   [[ -d "${path}" ]] || fail "${EXIT_VERIFY}" "Missing ${label}: ${path}"
 }
 
-# Safe key=value reader. Does not source the file.
 prop_value() {
   local props_path="$1"
   local key="$2"
@@ -139,17 +260,6 @@ require_prop() {
     fail "${EXIT_VERIFY}" "$(basename -- "${props_path}") missing required key: ${key}"
   fi
   printf '%s\n' "${value}"
-}
-
-csv_field() {
-  local line="$1"
-  local index="$2"
-  awk -F',' -v idx="${index}" '{
-    val=$idx
-    gsub(/^"/, "", val)
-    gsub(/"$/, "", val)
-    print val
-  }' <<<"${line}"
 }
 
 is_safe_relative_path() {
@@ -189,7 +299,6 @@ validate_checksum_paths() {
   while IFS= read -r line || [[ -n "${line}" ]]; do
     line="${line%$'\r'}"
     [[ -z "${line}" ]] && continue
-    # sha256sum lines: "<hash>  <path>" or "<hash> *<path>"
     if [[ ! "${line}" =~ ^[0-9a-f]{64}[[:space:]][\ *](.+)$ ]]; then
       fail "${EXIT_VERIFY}" "Malformed package_checksums.sha256 line: ${line}"
     fi
@@ -225,6 +334,7 @@ load_installation() {
   install_root_prop="$(require_prop "${props}" "installation_root")"
   work_root_prop="$(require_prop "${props}" "work_root")"
 
+  # installation.properties schema_version remains a separate contract (may be 1).
   [[ "${schema}" == "1" ]] || fail "${EXIT_VERIFY}" "installation schema_version must be 1"
   [[ "${commit}" == "${EXPECTED_COMMIT}" ]] \
     || fail "${EXIT_VERIFY}" "installation production_commit mismatch"
@@ -249,8 +359,9 @@ load_package_properties() {
   require_file "${props}" "package.properties"
   PKG_PROPERTIES_SHA="$(sha256_of "${props}")"
 
-  local schema checkpoint short_ckpt config_sha
+  local schema manifest_schema checkpoint short_ckpt config_sha
   schema="$(require_prop "${props}" "package.schema_version")"
+  manifest_schema="$(require_prop "${props}" "manifest.schema_version")"
   checkpoint="$(require_prop "${props}" "scientific_checkpoint")"
   short_ckpt="$(require_prop "${props}" "scientific_checkpoint_short")"
   PKG_MACHINE_ID="$(require_prop "${props}" "machine_id")"
@@ -264,7 +375,8 @@ load_package_properties() {
   PKG_MASTER_MANIFEST_SHA="$(require_prop "${props}" "master_manifest_sha256")"
   PKG_MACHINE_MANIFEST_SHA="$(require_prop "${props}" "machine_manifest_sha256")"
 
-  [[ "${schema}" == "1" ]] || fail "${EXIT_VERIFY}" "package.schema_version must be 1"
+  [[ "${schema}" == "2" ]] || fail "${EXIT_VERIFY}" "package.schema_version must be 2"
+  [[ "${manifest_schema}" == "2" ]] || fail "${EXIT_VERIFY}" "manifest.schema_version must be 2"
   [[ "${checkpoint}" == "${EXPECTED_COMMIT}" ]] \
     || fail "${EXIT_VERIFY}" "package scientific_checkpoint mismatch"
   [[ "${short_ckpt}" == "${EXPECTED_COMMIT_SHORT}" ]] \
@@ -281,9 +393,10 @@ load_package_properties() {
   if [[ ! "${PKG_ASSIGNED_COUNT}" =~ ^[1-9][0-9]*$ ]]; then
     fail "${EXIT_VERIFY}" "assigned_tiff_count must be a positive integer, found ${PKG_ASSIGNED_COUNT}"
   fi
-  if [[ ! "${PKG_FIRST_ID}" =~ ^[0-9]{6}$ || ! "${PKG_LAST_ID}" =~ ^[0-9]{6}$ ]]; then
-    fail "${EXIT_VERIFY}" "first/last image_id must be exactly six digits"
-  fi
+  is_core_segment_image_id "${PKG_FIRST_ID}" \
+    || fail "${EXIT_VERIFY}" "package first_image_id is not PPTTCS: ${PKG_FIRST_ID}"
+  is_core_segment_image_id "${PKG_LAST_ID}" \
+    || fail "${EXIT_VERIFY}" "package last_image_id is not PPTTCS: ${PKG_LAST_ID}"
   [[ "${config_sha}" == "${PKG_CANONICAL_CONFIG_SHA}" ]] \
     || fail "${EXIT_VERIFY}" \
       "production_config_sha256 must equal production_config_canonical_sha256"
@@ -332,41 +445,53 @@ validate_package_contents() {
 validate_manifest_and_inputs() {
   local root="$1"
   local manifest="$2"
+  local label="${PKG_MACHINE_ID}_manifest.csv"
   local header line
   IFS= read -r header <"${manifest}" || true
-  [[ -n "${header}" ]] || fail "${EXIT_VERIFY}" "machine manifest header missing"
+  resolve_manifest_header "${header}" "${label}"
 
   local -a image_ids=()
   local -a rel_paths=()
   local -a source_shas=()
   local -a source_sizes=()
   local -A seen_ids=()
+  local -A seen_cores=()
   local data_rows=0
-  local image_id source_rel source_sha source_size assigned config_hash
+  local image_id source_rel source_sha source_size assigned config_hash core_id
+  local prev_key='' cur_key
 
   while IFS= read -r line || [[ -n "${line}" ]]; do
     line="${line%$'\r'}"
     [[ -z "${line}" || "${line}" == "${header}" ]] && continue
 
-    image_id="$(csv_field "${line}" 3)"
-    source_rel="$(csv_field "${line}" 8)"
-    source_sha="$(csv_field "${line}" 9)"
-    source_size="$(csv_field "${line}" 10)"
-    assigned="$(csv_field "${line}" 11)"
-    config_hash="$(csv_field "${line}" 21)"
+    split_csv_simple "${line}"
+    validate_row_identity "${label}"
+
+    image_id="$(csv_get image_id)"
+    source_rel="$(csv_get source_relative_path)"
+    source_sha="$(csv_get source_sha256)"
+    source_size="$(csv_get source_size_bytes)"
+    assigned="$(csv_get assigned_machine)"
+    config_hash="$(csv_get configuration_sha256)"
+    core_id="$(csv_get core_id)"
 
     [[ "${assigned}" == "${PKG_MACHINE_ID}" ]] \
       || fail "${EXIT_VERIFY}" "manifest assigned_machine ${assigned} != ${PKG_MACHINE_ID}"
     [[ "${config_hash}" == "${PKG_CANONICAL_CONFIG_SHA}" ]] \
       || fail "${EXIT_VERIFY}" "manifest configuration_sha256 mismatch for ${image_id}"
-    [[ "${image_id}" =~ ^[0-9]{6}$ ]] \
-      || fail "${EXIT_VERIFY}" "manifest image_id not six digits: ${image_id}"
     if [[ -n "${seen_ids[${image_id}]+x}" ]]; then
       fail "${EXIT_VERIFY}" "duplicate image_id in manifest: ${image_id}"
     fi
     seen_ids["${image_id}"]=1
+    seen_cores["${core_id}"]=1
     is_safe_relative_path "${source_rel}" \
       || fail "${EXIT_VERIFY}" "unsafe source_relative_path: ${source_rel}"
+
+    cur_key="$(image_id_sort_key "${image_id}")"
+    if [[ -n "${prev_key}" && ! "${cur_key}" > "${prev_key}" ]]; then
+      fail "${EXIT_VERIFY}" "${label} not in canonical PPTTCS order at ${image_id}"
+    fi
+    prev_key="${cur_key}"
 
     image_ids+=("${image_id}")
     rel_paths+=("${source_rel}")
@@ -429,7 +554,8 @@ handle_existing_job() {
   require_file "${import_props}" "existing job import.properties"
 
   local existing_machine existing_checkpoint existing_props_sha existing_checksums_sha
-  local existing_count existing_file_sha existing_manifest_sha
+  local existing_count existing_file_sha existing_manifest_sha existing_import_schema
+  existing_import_schema="$(require_prop "${import_props}" "import.schema_version")"
   existing_machine="$(require_prop "${import_props}" "machine_id")"
   existing_checkpoint="$(require_prop "${import_props}" "scientific_checkpoint")"
   existing_props_sha="$(require_prop "${import_props}" "source_package_properties_sha256")"
@@ -438,7 +564,8 @@ handle_existing_job() {
   existing_file_sha="$(require_prop "${import_props}" "production_config_file_sha256")"
   existing_manifest_sha="$(require_prop "${import_props}" "machine_manifest_sha256")"
 
-  if [[ "${existing_machine}" != "${PKG_MACHINE_ID}" \
+  if [[ "${existing_import_schema}" != "2" \
+     || "${existing_machine}" != "${PKG_MACHINE_ID}" \
      || "${existing_checkpoint}" != "${EXPECTED_COMMIT}" \
      || "${existing_props_sha}" != "${PKG_PROPERTIES_SHA}" \
      || "${existing_checksums_sha}" != "${PKG_CHECKSUMS_SHA}" \
@@ -467,7 +594,8 @@ write_import_properties() {
   local timestamp_ms
   timestamp_ms="$(date +%s%3N 2>/dev/null || echo "$(($(date +%s) * 1000))")"
   cat >"${dest}" <<EOF
-import.schema_version=1
+import.schema_version=2
+manifest.schema_version=2
 scientific_checkpoint=${EXPECTED_COMMIT}
 scientific_checkpoint_short=${EXPECTED_COMMIT_SHORT}
 machine_id=${PKG_MACHINE_ID}

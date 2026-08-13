@@ -1,7 +1,7 @@
 # Portable Machine Run
 
 `run_lumen_machine.sh` is the user-local launcher for an installed
-`LumenRuntime/0c1c326` tree. It discovers the installation root from its own
+`LumenRuntime/9a53b84` tree. It discovers the installation root from its own
 path and uses only the portable JDK, Maven, Fiji, classifier, and config that
 `install_machine.sh` placed under that root.
 
@@ -29,7 +29,7 @@ It also requires:
 Requires an imported machine job at:
 
 ```text
-$HOME/LumenRuntime/0c1c326/work/<machine-id>/job
+$HOME/LumenRuntime/9a53b84/work/<machine-id>/job
 ```
 
 Before launching precheck it verifies:

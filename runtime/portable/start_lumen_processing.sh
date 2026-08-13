@@ -2,7 +2,7 @@
 # Lumen portable production start wrapper (operator-facing).
 #
 # Installed location:
-#   $HOME/LumenRuntime/0c1c326/start_lumen_processing.sh
+#   $HOME/LumenRuntime/9a53b84/start_lumen_processing.sh
 #
 # Usage:
 #   ./start_lumen_processing.sh
@@ -15,8 +15,8 @@
 #
 set -euo pipefail
 
-readonly EXPECTED_COMMIT='0c1c326fc07f7e049f1d359226e810c7b8db24ce'
-readonly EXPECTED_COMMIT_SHORT='0c1c326'
+readonly EXPECTED_COMMIT='9a53b843347b909dcc1762157aaf1d0c96126083'
+readonly EXPECTED_COMMIT_SHORT='9a53b84'
 readonly PRODUCTION_TILE_PROFILE_INDEX=2
 readonly PRODUCTION_TILE_PROFILE='1024x1024'
 readonly LAUNCHER_NAME='run_lumen_machine.sh'
@@ -45,6 +45,11 @@ ASSIGNED_COUNT=0
 MANIFEST_IMAGE_IDS=()
 declare -A MANIFEST_SOURCE_SHA=()
 declare -A MANIFEST_CONFIG_SHA=()
+DERIVED_PLOT_ID=''
+DERIVED_TREE_ID=''
+DERIVED_CORE_LABEL=''
+DERIVED_CORE_ID=''
+DERIVED_SEGMENT_ORDER=''
 
 fail() {
   local code="$1"
@@ -98,8 +103,24 @@ is_nonneg_int() {
   [[ "${1:-}" =~ ^[0-9]+$ ]]
 }
 
-is_six_digit_image_id() {
-  [[ "${1:-}" =~ ^[0-9]{6}$ ]]
+is_core_segment_image_id() {
+  local id="${1-}"
+  # Exact six characters; no trim, no case fold, no repair.
+  [[ "${#id}" -eq 6 ]] || return 1
+  [[ "${id}" =~ ^[0-9]{4}[AB][1-5]$ ]] || return 1
+  local plot="${id:0:2}"
+  local tree="${id:2:2}"
+  [[ "${plot}" != "00" && "${tree}" != "00" ]] || return 1
+  return 0
+}
+
+derive_core_segment_fields() {
+  local id="$1"
+  DERIVED_PLOT_ID="${id:0:2}"
+  DERIVED_TREE_ID="${id:2:2}"
+  DERIVED_CORE_LABEL="${id:4:1}"
+  DERIVED_CORE_ID="${id:0:5}"
+  DERIVED_SEGMENT_ORDER="${id:5:1}"
 }
 
 now_epoch_ms() {
@@ -293,11 +314,21 @@ verify_job_metadata() {
   require_file "${manifest_path}" "machine manifest"
 
   local import_machine package_machine import_ckpt package_ckpt
+  local package_schema manifest_schema import_schema
   import_machine="$(require_prop "${import_props}" "machine_id")"
   package_machine="$(require_prop "${package_props}" "machine_id")"
   import_ckpt="$(require_prop "${import_props}" "scientific_checkpoint")"
   package_ckpt="$(require_prop "${package_props}" "scientific_checkpoint")"
+  package_schema="$(require_prop "${package_props}" "package.schema_version")"
+  manifest_schema="$(require_prop "${package_props}" "manifest.schema_version")"
+  import_schema="$(require_prop "${import_props}" "import.schema_version")"
 
+  [[ "${package_schema}" == "2" ]] \
+    || fail "${EXIT_VALIDATION}" "package.schema_version must be 2, found ${package_schema}"
+  [[ "${manifest_schema}" == "2" ]] \
+    || fail "${EXIT_VALIDATION}" "manifest.schema_version must be 2, found ${manifest_schema}"
+  [[ "${import_schema}" == "2" ]] \
+    || fail "${EXIT_VALIDATION}" "import.schema_version must be 2, found ${import_schema}"
   [[ "${import_machine}" == "${PROP_machine_id}" ]] \
     || fail "${EXIT_VALIDATION}" \
       "import.properties machine_id ${import_machine} != installed ${PROP_machine_id}"
@@ -354,11 +385,14 @@ load_machine_manifest() {
   MANIFEST_SOURCE_SHA=()
   MANIFEST_CONFIG_SHA=()
 
-  local header_line line image_id source_sha config_sha
+  local header_line line image_id source_sha config_sha schema_version
+  local plot_id tree_id core_label core_id segment_order
   local idx_image=-1 idx_source=-1 idx_config=-1
+  local idx_schema=-1 idx_plot=-1 idx_tree=-1 idx_core_label=-1 idx_core_id=-1 idx_segment=-1
   local data_rows=0
-  local i
+  local i name
   local header=()
+  declare -A seen_header=()
 
   # Read header once, then only subsequent lines as data (same file descriptor).
   {
@@ -369,15 +403,28 @@ load_machine_manifest() {
     split_csv_simple "${header_line}"
     header=("${CSV_FIELDS[@]}")
     for i in "${!header[@]}"; do
-      case "${header[$i]}" in
+      name="${header[$i]}"
+      if [[ -n "${seen_header[${name}]+x}" ]]; then
+        fail "${EXIT_VALIDATION}" "Duplicate header field in machine manifest: ${name}"
+      fi
+      seen_header["${name}"]=1
+      case "${name}" in
+        schema_version) idx_schema=$i ;;
         image_id) idx_image=$i ;;
+        plot_id) idx_plot=$i ;;
+        tree_id) idx_tree=$i ;;
+        core_label) idx_core_label=$i ;;
+        core_id) idx_core_id=$i ;;
+        segment_order) idx_segment=$i ;;
         source_sha256) idx_source=$i ;;
         configuration_sha256) idx_config=$i ;;
       esac
     done
-    if (( idx_image < 0 || idx_source < 0 || idx_config < 0 )); then
+    if (( idx_schema < 0 || idx_image < 0 || idx_source < 0 || idx_config < 0 \
+       || idx_plot < 0 || idx_tree < 0 || idx_core_label < 0 || idx_core_id < 0 \
+       || idx_segment < 0 )); then
       fail "${EXIT_VALIDATION}" \
-        "machine manifest missing required columns image_id/source_sha256/configuration_sha256"
+        "machine manifest missing required schema-2 identity/sha columns"
     fi
 
     while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -387,10 +434,27 @@ load_machine_manifest() {
       image_id="${CSV_FIELDS[$idx_image]:-}"
       source_sha="${CSV_FIELDS[$idx_source]:-}"
       config_sha="${CSV_FIELDS[$idx_config]:-}"
+      schema_version="${CSV_FIELDS[$idx_schema]:-}"
+      plot_id="${CSV_FIELDS[$idx_plot]:-}"
+      tree_id="${CSV_FIELDS[$idx_tree]:-}"
+      core_label="${CSV_FIELDS[$idx_core_label]:-}"
+      core_id="${CSV_FIELDS[$idx_core_id]:-}"
+      segment_order="${CSV_FIELDS[$idx_segment]:-}"
 
-      if ! is_six_digit_image_id "${image_id}"; then
-        fail "${EXIT_VALIDATION}" "Invalid or missing image_id in machine manifest: ${image_id}"
+      [[ "${schema_version}" == "2" ]] \
+        || fail "${EXIT_VALIDATION}" \
+          "machine manifest schema_version must be 2, found ${schema_version} (image ${image_id})"
+      if ! is_core_segment_image_id "${image_id}"; then
+        fail "${EXIT_VALIDATION}" "Invalid or missing PPTTCS image_id in machine manifest: ${image_id}"
       fi
+      derive_core_segment_fields "${image_id}"
+      [[ "${plot_id}" == "${DERIVED_PLOT_ID}" \
+         && "${tree_id}" == "${DERIVED_TREE_ID}" \
+         && "${core_label}" == "${DERIVED_CORE_LABEL}" \
+         && "${core_id}" == "${DERIVED_CORE_ID}" \
+         && "${segment_order}" == "${DERIVED_SEGMENT_ORDER}" ]] \
+        || fail "${EXIT_VALIDATION}" \
+          "Identity decomposition mismatch for image_id ${image_id}"
       if [[ -n "${MANIFEST_SOURCE_SHA[${image_id}]+x}" ]]; then
         fail "${EXIT_VALIDATION}" "Duplicate image_id in machine manifest: ${image_id}"
       fi

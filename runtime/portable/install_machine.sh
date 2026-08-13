@@ -9,13 +9,13 @@
 #
 set -euo pipefail
 
-readonly EXPECTED_COMMIT='0c1c326fc07f7e049f1d359226e810c7b8db24ce'
-readonly EXPECTED_COMMIT_SHORT='0c1c326'
+readonly EXPECTED_COMMIT='9a53b843347b909dcc1762157aaf1d0c96126083'
+readonly EXPECTED_COMMIT_SHORT='9a53b84'
 readonly EXPECTED_CLASSIFIER_SHA256='d109f00d1ca16447bc433303cb6f5ec1a5a9d27a3215b24d87df77346b04340c'
-readonly EXPECTED_PLUGIN_SHA256='81fa019d40ceb085d28ba6b82a5972615919a115a28014e6bbdebed3750a6cde'
-readonly EXPECTED_LAUNCHER_SHA256='8e2bfcf6659e5d7387b210ea10bd647546485b702f7c34511d809c0e4971de1b'
-readonly EXPECTED_MONITOR_SHA256='e6e4c953ca0d6eabc6fd852a25921b9c53b25dea5894baefe3066ca2c77c62dd'
-readonly EXPECTED_STARTER_SHA256='0831e6decd1b3b3514933ea3219cc0e6e551cbacb9dd465f749b69f486b2645d'
+readonly EXPECTED_PLUGIN_SHA256='0277c6453e81cc11e17f22c5e7021077a254457278185b76e87db54ae23b4414'
+readonly EXPECTED_LAUNCHER_SHA256='5841d9c3bdd0f0e10cb4890144fbc69fb91963265c291e17a963ae6658923e0b'
+readonly EXPECTED_MONITOR_SHA256='dca21f33cd94fc1b92261bc8ba7e3fee9b5e1cf0c3cdbcf700f7dafa4e155a95'
+readonly EXPECTED_STARTER_SHA256='db1e99fa6a6021e05242f3dce7c62a21d3b9fa2604c47bb5b6c08a107514514a'
 readonly PLUGIN_JAR_NAME='VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar'
 readonly CLASSIFIER_NAME='Classifier9.model'
 readonly LAUNCHER_NAME='run_lumen_machine.sh'
@@ -96,7 +96,7 @@ usage() {
 Usage: ./install_machine.sh <machine_XX>
 
 Install the Lumen portable checkpoint into:
-  $HOME/LumenRuntime/0c1c326
+  $HOME/LumenRuntime/9a53b84
 
 machine_XX must match: machine_01 .. machine_99
 

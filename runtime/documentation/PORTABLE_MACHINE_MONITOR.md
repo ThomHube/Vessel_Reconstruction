@@ -1,7 +1,7 @@
 # Portable Machine Monitor
 
 `monitor_lumen_machine.sh` is a **read-only**, **one-shot** status snapshot for an
-installed `LumenRuntime/0c1c326` machine. It observes overnight processing
+installed `LumenRuntime/9a53b84` machine. It observes overnight processing
 progress without controlling, restarting, or signaling the run.
 
 ## Installed location
@@ -9,7 +9,7 @@ progress without controlling, restarting, or signaling the run.
 Fresh `install_machine.sh` installs:
 
 ```text
-$HOME/LumenRuntime/0c1c326/monitor_lumen_machine.sh
+$HOME/LumenRuntime/9a53b84/monitor_lumen_machine.sh
 ```
 
 Source on the portable drive (beside the installer):

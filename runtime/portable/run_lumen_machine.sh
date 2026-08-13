@@ -2,7 +2,7 @@
 # Lumen portable local runtime launcher.
 #
 # Installed location:
-#   $HOME/LumenRuntime/0c1c326/run_lumen_machine.sh
+#   $HOME/LumenRuntime/9a53b84/run_lumen_machine.sh
 #
 # Supported modes:
 #   ./run_lumen_machine.sh --verify-only
@@ -14,10 +14,10 @@
 #
 set -euo pipefail
 
-readonly EXPECTED_COMMIT='0c1c326fc07f7e049f1d359226e810c7b8db24ce'
-readonly EXPECTED_COMMIT_SHORT='0c1c326'
+readonly EXPECTED_COMMIT='9a53b843347b909dcc1762157aaf1d0c96126083'
+readonly EXPECTED_COMMIT_SHORT='9a53b84'
 readonly EXPECTED_CLASSIFIER_SHA256='d109f00d1ca16447bc433303cb6f5ec1a5a9d27a3215b24d87df77346b04340c'
-readonly EXPECTED_PLUGIN_SHA256='81fa019d40ceb085d28ba6b82a5972615919a115a28014e6bbdebed3750a6cde'
+readonly EXPECTED_PLUGIN_SHA256='0277c6453e81cc11e17f22c5e7021077a254457278185b76e87db54ae23b4414'
 readonly PLUGIN_JAR_NAME='VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar'
 readonly CLASSIFIER_NAME='Classifier9.model'
 

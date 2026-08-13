@@ -1,7 +1,7 @@
 # Batch Phase 4 — Machine Supervisor
 
 Phase 4 runs every TIFF assigned to one laboratory machine unattended:
-deterministic six-digit order, safe resume, live progress, and a final machine
+deterministic PPTTCS (`CoreSegmentId`) order, safe resume, live progress, and a final machine
 summary.
 
 ## Mini-iterations
@@ -118,7 +118,7 @@ Created when the execution supervisor runs (not during read-only planning):
 Image IDs are `PPTTCS` (plot / tree / core A|B / segment 1–5). Canonical order is
 `CoreSegmentId.compareTo` (plot → tree → core A before B → segment order).
 
-Portable deployment migration to this identity model follows in a later phase.
+Portable scripts target scientific checkpoint `9a53b84` (PPTTCS / manifest schema 2).
 ## Authoritative inputs
 
 | Input | Source |

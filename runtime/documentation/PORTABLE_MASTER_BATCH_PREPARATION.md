@@ -1,4 +1,4 @@
-# Portable Master Batch Preparation (Phase 4C2A)
+# Portable Master Batch Preparation (Phase 4C4B1)
 
 Create **one** authoritative central batch plan on the preparation/master
 computer **before** the external drive is taken to laboratory PCs.
@@ -7,7 +7,7 @@ Individual lab machines must **not** independently repartition the dataset.
 
 ## Usage
 
-Requires an installed portable runtime at `$HOME/LumenRuntime/0c1c326`.
+Requires an installed portable runtime at `$HOME/LumenRuntime/9a53b84`.
 
 ```bash
 ./prepare_master_batch.sh \
@@ -16,34 +16,52 @@ Requires an installed portable runtime at `$HOME/LumenRuntime/0c1c326`.
   <machine-count>
 ```
 
-- `all-tiffs-input-root` — read-only source directory of the complete TIFF set
+- `all-tiffs-input-root` — read-only source directory of production TIFFs
 - `portable-job-root` — new job directory (must not already exist)
 - `machine-count` — integer `1` … `99`
 
 ## What this phase does
 
 1. Calls `run_lumen_machine.sh --verify-only` so portable controller classes exist.
-2. Copies `default_batch.properties` to `production_batch.properties` and sets
-   only `machines.count=<N>` (keeps `input.require_complete_expected_set=true`).
+2. Writes `production_batch.properties` from `default_batch.properties`, setting
+   `machines.count=<N>` and forcing
+   `input.require_complete_expected_set=false` (PPTTCS has no fixed expected set).
 3. Runs the existing `BatchManifestPlannerCli` with portable Java against the
    source TIFF root.
-4. Validates structure, order, config SHA-256 consistency, and machine slices.
+4. Validates schema-2 manifests, PPTTCS identity, canonical order, configuration
+   SHA-256 consistency, and **core-preserving** machine assignment.
 5. Publishes the job root atomically from a staging directory.
 
-## Ordering and assignment
+## Identity and ordering
 
-All 80 TIFFs are ordered by six-digit `PPSSRR` (plot / tree / replicate).
-Assignments are contiguous ranges; remainder goes to the earliest machines.
+Every TIFF base name is a production image ID `PPTTCS`:
 
-For **three** machines the validated planner yields:
+| Field | Meaning | Valid values |
+|-------|---------|--------------|
+| `PP` | plot | two digits, not `00` |
+| `TT` | tree | two digits, not `00` |
+| `C` | physical core | `A` or `B` |
+| `S` | segment order | `1`–`5` |
 
-| Machine | Count |
-|---------|-------|
-| machine_01 | 27 |
-| machine_02 | 27 |
-| machine_03 | 26 |
+Examples: `0101A1`, `0101A2`, `0101B1`, `0207B5`.
 
-First image: `010101`. Last image: `022002`.
+Canonical order: plot ascending, tree ascending, core A before B, segment
+ascending. Segment `1` is closest to bark; higher numbers move toward pith/center.
+A physical core has 1–5 segments. All segments of one `core_id` stay on the same
+machine.
+
+Total TIFF count is **variable** (derived from the master manifest).
+`first_image_id` / `last_image_id` are the actual first/last canonical rows, not
+fixed constants.
+
+## Manifest schema
+
+Java `BatchManifestSchema.SCHEMA_VERSION` is **2**. Portable preparation records:
+
+- `portable_plan_schema_version=2`
+- `manifest_schema_version=2`
+
+Old schema-1 six-digit manifests are rejected.
 
 ## Configuration hashes
 
@@ -90,3 +108,4 @@ machine will later receive only its assigned TIFFs plus this plan/config
 - no processing outputs
 - no changes under `LumenPortable/canonical`
 - source TIFF directory is never modified
+- continuous physical coordinates across multi-segment cores remain a later phase

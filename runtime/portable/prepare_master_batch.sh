@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# Phase 4C2A: central master batch preparation (no TIFF copies, no processing).
+# Phase 4C4B1: central master batch preparation (PPTTCS / schema-2).
+# No TIFF copies, no Fiji processing.
 #
 # Usage:
 #   ./prepare_master_batch.sh <all-tiffs-input-root> <portable-job-root> <machine-count>
 #
 set -euo pipefail
 
-readonly EXPECTED_COMMIT='0c1c326fc07f7e049f1d359226e810c7b8db24ce'
-readonly EXPECTED_COMMIT_SHORT='0c1c326'
-readonly EXPECTED_TIFF_COUNT=80
-readonly EXPECTED_FIRST_IMAGE_ID='010101'
-readonly EXPECTED_LAST_IMAGE_ID='022002'
+readonly EXPECTED_COMMIT='9a53b843347b909dcc1762157aaf1d0c96126083'
+readonly EXPECTED_COMMIT_SHORT='9a53b84'
 readonly LUMEN_RUNTIME_ROOT="${HOME}/LumenRuntime/${EXPECTED_COMMIT_SHORT}"
 
 readonly EXIT_USAGE=2
@@ -28,6 +26,133 @@ PROJECT_ROOT=''
 CLASSES_DIR=''
 DEFAULT_CONFIG=''
 VERIFY_LAUNCHER=''
+MASTER_FIRST_ID=''
+MASTER_LAST_ID=''
+MASTER_VALID_COUNT=0
+PRODUCTION_CONFIG_CANONICAL_SHA256=''
+PRODUCTION_CONFIG_FILE_SHA256=''
+
+
+readonly CANONICAL_MANIFEST_HEADER='schema_version,order_index,image_id,plot_id,tree_id,core_label,core_id,segment_order,source_filename,source_relative_path,source_sha256,source_size_bytes,assigned_machine,assignment_index,status,attempt_count,last_start_timestamp,last_end_timestamp,last_exit_code,last_message,tile_profile_index,dataset_shard_relative_path,configuration_sha256'
+readonly MANIFEST_SCHEMA_VERSION='2'
+
+# Populated by resolve_manifest_header / split_csv_simple.
+CSV_FIELDS=()
+declare -A CSV_IDX=()
+DERIVED_PLOT_ID=''
+DERIVED_TREE_ID=''
+DERIVED_CORE_LABEL=''
+DERIVED_CORE_ID=''
+DERIVED_SEGMENT_ORDER=''
+
+is_core_segment_image_id() {
+  local id="${1-}"
+  # Exact six characters; no trim, no case fold, no repair.
+  [[ "${#id}" -eq 6 ]] || return 1
+  [[ "${id}" =~ ^[0-9]{4}[AB][1-5]$ ]] || return 1
+  local plot="${id:0:2}"
+  local tree="${id:2:2}"
+  [[ "${plot}" != "00" && "${tree}" != "00" ]] || return 1
+  return 0
+}
+
+derive_core_segment_fields() {
+  local id="$1"
+  DERIVED_PLOT_ID="${id:0:2}"
+  DERIVED_TREE_ID="${id:2:2}"
+  DERIVED_CORE_LABEL="${id:4:1}"
+  DERIVED_CORE_ID="${id:0:5}"
+  DERIVED_SEGMENT_ORDER="${id:5:1}"
+}
+
+image_id_sort_key() {
+  local id="$1"
+  local core_rank=0
+  [[ "${id:4:1}" == "B" ]] && core_rank=1
+  printf '%s%s%d%s' "${id:0:2}" "${id:2:2}" "${core_rank}" "${id:5:1}"
+}
+
+split_csv_simple() {
+  local line="$1"
+  CSV_FIELDS=()
+  local IFS=','
+  # shellcheck disable=SC2206
+  CSV_FIELDS=(${line})
+  unset IFS
+}
+
+resolve_manifest_header() {
+  local header_line="$1"
+  local label="$2"
+  header_line="${header_line%$'\r'}"
+  [[ -n "${header_line}" ]] || fail "${EXIT_VERIFY}" "${label}: manifest header missing"
+  if [[ "${header_line}" != "${CANONICAL_MANIFEST_HEADER}" ]]; then
+    fail "${EXIT_VERIFY}" \
+      "${label}: manifest header is not the exact schema-2 canonical header"
+  fi
+  split_csv_simple "${header_line}"
+  CSV_IDX=()
+  local i name
+  for i in "${!CSV_FIELDS[@]}"; do
+    name="${CSV_FIELDS[$i]}"
+    if [[ -n "${CSV_IDX[${name}]+x}" ]]; then
+      fail "${EXIT_VERIFY}" "${label}: duplicate header field: ${name}"
+    fi
+    CSV_IDX["${name}"]=$i
+  done
+  local required
+  for required in \
+      schema_version order_index image_id plot_id tree_id core_label core_id \
+      segment_order source_filename source_relative_path source_sha256 \
+      source_size_bytes assigned_machine assignment_index configuration_sha256
+  do
+    if [[ -z "${CSV_IDX[${required}]+x}" ]]; then
+      fail "${EXIT_VERIFY}" "${label}: missing required header field: ${required}"
+    fi
+  done
+}
+
+csv_get() {
+  local name="$1"
+  printf '%s' "${CSV_FIELDS[${CSV_IDX[${name}]}]:-}"
+}
+
+validate_row_identity() {
+  local label="$1"
+  local image_id plot_id tree_id core_label core_id segment_order schema_version
+  image_id="$(csv_get image_id)"
+  plot_id="$(csv_get plot_id)"
+  tree_id="$(csv_get tree_id)"
+  core_label="$(csv_get core_label)"
+  core_id="$(csv_get core_id)"
+  segment_order="$(csv_get segment_order)"
+  schema_version="$(csv_get schema_version)"
+
+  [[ "${schema_version}" == "${MANIFEST_SCHEMA_VERSION}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: schema_version must be ${MANIFEST_SCHEMA_VERSION}, found ${schema_version} (image ${image_id})"
+
+  is_core_segment_image_id "${image_id}" \
+    || fail "${EXIT_VERIFY}" "${label}: invalid PPTTCS image_id: ${image_id}"
+
+  derive_core_segment_fields "${image_id}"
+  [[ "${plot_id}" == "${DERIVED_PLOT_ID}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: plot_id mismatch for ${image_id}: row=${plot_id} derived=${DERIVED_PLOT_ID}"
+  [[ "${tree_id}" == "${DERIVED_TREE_ID}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: tree_id mismatch for ${image_id}: row=${tree_id} derived=${DERIVED_TREE_ID}"
+  [[ "${core_label}" == "${DERIVED_CORE_LABEL}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: core_label mismatch for ${image_id}: row=${core_label} derived=${DERIVED_CORE_LABEL}"
+  [[ "${core_id}" == "${DERIVED_CORE_ID}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: core_id mismatch for ${image_id}: row=${core_id} derived=${DERIVED_CORE_ID}"
+  [[ "${segment_order}" == "${DERIVED_SEGMENT_ORDER}" ]] \
+    || fail "${EXIT_VERIFY}" \
+      "${label}: segment_order mismatch for ${image_id}: row=${segment_order} derived=${DERIVED_SEGMENT_ORDER}"
+}
+
 
 cleanup_staging() {
   local staging="${STAGING_ROOT:-}"
@@ -48,7 +173,6 @@ cleanup_staging() {
       return 0
       ;;
   esac
-  # Never delete HOME, job root, or input root.
   local abs
   abs="$(cd -P -- "${staging}" && pwd)" || return 0
   if [[ "${abs}" == "${HOME}" \
@@ -80,6 +204,7 @@ Creates one authoritative central batch plan for laboratory distribution.
 Does not copy TIFFs, run Fiji, or process images.
 
 machine-count must be an integer from 1 through 99.
+Production TIFF count is variable (PPTTCS identity, schema-2 manifests).
 EOF
 }
 
@@ -117,7 +242,6 @@ require_dir() {
   [[ -d "${path}" ]] || fail "${EXIT_VERIFY}" "Missing ${label}: ${path}"
 }
 
-# Safe key=value reader. Does not source the file as shell.
 read_required_sha256_property() {
   local file_path="$1"
   local key="$2"
@@ -143,18 +267,6 @@ read_required_sha256_property() {
       "${label}: ${key} must be 64 lowercase hex characters, found '${found}'"
   fi
   printf '%s\n' "${found}"
-}
-
-csv_field() {
-  # Extract 1-based CSV field; strip surrounding quotes. Assumes no embedded commas.
-  local line="$1"
-  local index="$2"
-  awk -F',' -v idx="${index}" '{
-    val=$idx
-    gsub(/^"/, "", val)
-    gsub(/"$/, "", val)
-    print val
-  }' <<<"${line}"
 }
 
 resolve_lumen_runtime() {
@@ -200,10 +312,9 @@ write_production_config() {
         saw_machines=1
         ;;
       input.require_complete_expected_set=*)
-        printf '%s\n' "${line}" >>"${dest}"
-        if [[ "${line}" == "input.require_complete_expected_set=true" ]]; then
-          saw_complete=1
-        fi
+        # PPTTCS has no fixed expected set; force false regardless of source.
+        printf 'input.require_complete_expected_set=false\n' >>"${dest}"
+        saw_complete=1
         ;;
       *)
         printf '%s\n' "${line}" >>"${dest}"
@@ -215,8 +326,7 @@ write_production_config() {
     fail "${EXIT_VALIDATION}" "Source config missing machines.count"
   fi
   if [[ "${saw_complete}" -ne 1 ]]; then
-    fail "${EXIT_VALIDATION}" \
-      "production config must keep input.require_complete_expected_set=true"
+    printf 'input.require_complete_expected_set=false\n' >>"${dest}"
   fi
 }
 
@@ -261,24 +371,21 @@ validate_master_and_machines() {
   local plan_root="$1"
   local production_config_canonical_sha256="$2"
   local master="${plan_root}/master_batch_manifest.csv"
-
-  local total_lines
-  total_lines="$(wc -l <"${master}" | tr -d ' ')"
-  if [[ "${total_lines}" -ne $((EXPECTED_TIFF_COUNT + 1)) ]]; then
-    fail "${EXIT_VERIFY}" \
-      "master_batch_manifest.csv must have $((EXPECTED_TIFF_COUNT + 1)) lines (header+${EXPECTED_TIFF_COUNT}); found ${total_lines}"
-  fi
+  local label="master_batch_manifest.csv"
 
   local header
   IFS= read -r header <"${master}" || true
-  [[ -n "${header}" ]] || fail "${EXIT_VERIFY}" "master manifest header missing"
+  resolve_manifest_header "${header}" "${label}"
 
-  local first_id='' last_id='' prev_id=''
+  local first_id='' last_id='' prev_key=''
   local -A seen_ids=()
   local -A seen_sources=()
   local -A machine_counts=()
-  local line image_id source_rel assigned config_hash
+  local -A core_to_machine=()
+  local -A master_images=()
+  local line image_id source_rel assigned config_hash core_id
   local data_rows=0
+  local cur_key
 
   while IFS= read -r line || [[ -n "${line}" ]]; do
     line="${line%$'\r'}"
@@ -287,26 +394,32 @@ validate_master_and_machines() {
       continue
     fi
 
-    image_id="$(csv_field "${line}" 3)"
-    source_rel="$(csv_field "${line}" 8)"
-    assigned="$(csv_field "${line}" 11)"
-    config_hash="$(csv_field "${line}" 21)"
+    split_csv_simple "${line}"
+    validate_row_identity "${label}"
+
+    image_id="$(csv_get image_id)"
+    source_rel="$(csv_get source_relative_path)"
+    assigned="$(csv_get assigned_machine)"
+    config_hash="$(csv_get configuration_sha256)"
+    core_id="$(csv_get core_id)"
 
     if [[ -z "${first_id}" ]]; then
       first_id="${image_id}"
     fi
     last_id="${image_id}"
 
-    if [[ -n "${prev_id}" && ! "${image_id}" > "${prev_id}" ]]; then
+    cur_key="$(image_id_sort_key "${image_id}")"
+    if [[ -n "${prev_key}" && ! "${cur_key}" > "${prev_key}" ]]; then
       fail "${EXIT_VERIFY}" \
-        "master manifest image_id order not strictly ascending at ${image_id} (previous ${prev_id})"
+        "master manifest not in canonical PPTTCS order at ${image_id} (previous key ${prev_key})"
     fi
-    prev_id="${image_id}"
+    prev_key="${cur_key}"
 
     if [[ -n "${seen_ids[${image_id}]+x}" ]]; then
       fail "${EXIT_VERIFY}" "duplicate image_id in master manifest: ${image_id}"
     fi
     seen_ids["${image_id}"]=1
+    master_images["${image_id}"]=1
 
     if [[ -n "${seen_sources[${source_rel}]+x}" ]]; then
       fail "${EXIT_VERIFY}" "duplicate source_relative_path in master manifest: ${source_rel}"
@@ -324,6 +437,13 @@ validate_master_and_machines() {
     fi
     machine_counts["${assigned}"]=$(( ${machine_counts[${assigned}]:-0} + 1 ))
 
+    if [[ -n "${core_to_machine[${core_id}]+x}" \
+       && "${core_to_machine[${core_id}]}" != "${assigned}" ]]; then
+      fail "${EXIT_VERIFY}" \
+        "core_id ${core_id} split across machines: ${core_to_machine[${core_id}]} and ${assigned}"
+    fi
+    core_to_machine["${core_id}"]="${assigned}"
+
     if [[ "${config_hash}" != "${production_config_canonical_sha256}" ]]; then
       fail "${EXIT_VERIFY}" \
         "configuration_sha256 mismatch in master for ${image_id}: expected ${production_config_canonical_sha256}, found ${config_hash}"
@@ -332,80 +452,107 @@ validate_master_and_machines() {
     data_rows=$((data_rows + 1))
   done <"${master}"
 
-  if [[ "${data_rows}" -ne "${EXPECTED_TIFF_COUNT}" ]]; then
-    fail "${EXIT_VERIFY}" "master data rows expected ${EXPECTED_TIFF_COUNT}, found ${data_rows}"
+  if [[ "${data_rows}" -lt 1 ]]; then
+    fail "${EXIT_VERIFY}" "master_batch_manifest.csv has no data rows"
   fi
-  if [[ "${#seen_ids[@]}" -ne "${EXPECTED_TIFF_COUNT}" ]]; then
-    fail "${EXIT_VERIFY}" "expected ${EXPECTED_TIFF_COUNT} distinct image_id values"
+  if [[ "${#seen_ids[@]}" -ne "${data_rows}" ]]; then
+    fail "${EXIT_VERIFY}" "master image_id uniqueness mismatch"
   fi
-  if [[ "${#seen_sources[@]}" -ne "${EXPECTED_TIFF_COUNT}" ]]; then
-    fail "${EXIT_VERIFY}" "expected ${EXPECTED_TIFF_COUNT} distinct source_relative_path values"
-  fi
-  if [[ "${first_id}" != "${EXPECTED_FIRST_IMAGE_ID}" ]]; then
-    fail "${EXIT_VERIFY}" "first image_id expected ${EXPECTED_FIRST_IMAGE_ID}, found ${first_id}"
-  fi
-  if [[ "${last_id}" != "${EXPECTED_LAST_IMAGE_ID}" ]]; then
-    fail "${EXIT_VERIFY}" "last image_id expected ${EXPECTED_LAST_IMAGE_ID}, found ${last_id}"
+  if [[ "${#seen_sources[@]}" -ne "${data_rows}" ]]; then
+    fail "${EXIT_VERIFY}" "master source_relative_path uniqueness mismatch"
   fi
 
-  local i mid mpath mrows mline m_image m_assigned m_hash machine_total=0
+  local -A packaged_images=()
+  local i mid mpath mlabel mheader mline
+  local m_image m_assigned m_hash m_core m_source
+  local machine_total=0
+  local data_for_machine
+  local -A machine_cores=()
+
   for ((i = 1; i <= MACHINE_COUNT; i++)); do
     mid="$(machine_id_for_index "${i}")"
     mpath="${plan_root}/machines/${mid}_manifest.csv"
-    mrows=0
+    mlabel="${mid}_manifest.csv"
+    machine_cores=()
+
+    IFS= read -r mheader <"${mpath}" || true
+    resolve_manifest_header "${mheader}" "${mlabel}"
+
+    data_for_machine=0
+    local m_prev_key=''
     while IFS= read -r mline || [[ -n "${mline}" ]]; do
       mline="${mline%$'\r'}"
-      [[ -z "${mline}" ]] && continue
-      if [[ "${mrows}" -eq 0 ]]; then
-        # header
-        mrows=1
-        continue
+      [[ -z "${mline}" || "${mline}" == "${mheader}" ]] && continue
+
+      split_csv_simple "${mline}"
+      validate_row_identity "${mlabel}"
+
+      m_image="$(csv_get image_id)"
+      m_assigned="$(csv_get assigned_machine)"
+      m_hash="$(csv_get configuration_sha256)"
+      m_core="$(csv_get core_id)"
+      m_source="$(csv_get source_relative_path)"
+
+      [[ "${m_assigned}" == "${mid}" ]] \
+        || fail "${EXIT_VERIFY}" \
+          "${mlabel} contains row for ${m_assigned} (image ${m_image})"
+      [[ "${m_hash}" == "${production_config_canonical_sha256}" ]] \
+        || fail "${EXIT_VERIFY}" \
+          "configuration_sha256 mismatch in ${mid} for ${m_image}"
+
+      if [[ -z "${master_images[${m_image}]+x}" ]]; then
+        fail "${EXIT_VERIFY}" "${mlabel} contains image_id not in master: ${m_image}"
       fi
-      m_image="$(csv_field "${mline}" 3)"
-      m_assigned="$(csv_field "${mline}" 11)"
-      m_hash="$(csv_field "${mline}" 21)"
-      if [[ "${m_assigned}" != "${mid}" ]]; then
+      if [[ -n "${packaged_images[${m_image}]+x}" ]]; then
+        fail "${EXIT_VERIFY}" "image_id ${m_image} appears in multiple machine manifests"
+      fi
+      packaged_images["${m_image}"]=1
+
+      if [[ -n "${core_to_machine[${m_core}]+x}" \
+         && "${core_to_machine[${m_core}]}" != "${mid}" ]]; then
         fail "${EXIT_VERIFY}" \
-          "${mid}_manifest.csv contains row for ${m_assigned} (image ${m_image})"
+          "machine ${mid} has core_id ${m_core} assigned to ${core_to_machine[${m_core}]} in master"
       fi
-      if [[ "${m_hash}" != "${production_config_canonical_sha256}" ]]; then
+      machine_cores["${m_core}"]=1
+
+      cur_key="$(image_id_sort_key "${m_image}")"
+      if [[ -n "${m_prev_key}" && ! "${cur_key}" > "${m_prev_key}" ]]; then
         fail "${EXIT_VERIFY}" \
-          "configuration_sha256 mismatch in ${mid} for ${m_image}: expected ${production_config_canonical_sha256}, found ${m_hash}"
+          "${mlabel} not in canonical PPTTCS order at ${m_image}"
       fi
-      mrows=$((mrows + 1))
+      m_prev_key="${cur_key}"
+
+      data_for_machine=$((data_for_machine + 1))
     done <"${mpath}"
-    local data_for_machine=$((mrows - 1))
-    if [[ "${data_for_machine}" -lt 0 ]]; then
-      data_for_machine=0
-    fi
+
     if [[ "${data_for_machine}" -ne "${machine_counts[${mid}]:-0}" ]]; then
       fail "${EXIT_VERIFY}" \
         "${mid} row count ${data_for_machine} does not match master assignment count ${machine_counts[${mid}]:-0}"
     fi
     machine_total=$((machine_total + data_for_machine))
+    eval "MACHINE_COUNT_${i}=${data_for_machine}"
   done
 
-  if [[ "${machine_total}" -ne "${EXPECTED_TIFF_COUNT}" ]]; then
+  if [[ "${machine_total}" -ne "${data_rows}" ]]; then
     fail "${EXIT_VERIFY}" \
-      "sum of machine manifest rows is ${machine_total}, expected ${EXPECTED_TIFF_COUNT}"
+      "sum of machine manifest rows is ${machine_total}, expected ${data_rows}"
+  fi
+  if [[ "${#packaged_images[@]}" -ne "${data_rows}" ]]; then
+    fail "${EXIT_VERIFY}" \
+      "unique machine-manifest image_id count ${#packaged_images[@]} != master ${data_rows}"
   fi
 
-  if [[ "${MACHINE_COUNT}" -eq 3 ]]; then
-    if [[ "${machine_counts[machine_01]:-0}" -ne 27 \
-       || "${machine_counts[machine_02]:-0}" -ne 27 \
-       || "${machine_counts[machine_03]:-0}" -ne 26 ]]; then
-      fail "${EXIT_VERIFY}" \
-        "for machine_count=3 expected 27/27/26, found ${machine_counts[machine_01]:-0}/${machine_counts[machine_02]:-0}/${machine_counts[machine_03]:-0}"
+  local img
+  for img in "${!master_images[@]}"; do
+    if [[ -z "${packaged_images[${img}]+x}" ]]; then
+      fail "${EXIT_VERIFY}" "master image_id missing from machine manifests: ${img}"
     fi
-  fi
+  done
 
-  # Export counts for success summary via globals.
+  # Every master physical core belongs to exactly one machine (already enforced).
   MASTER_FIRST_ID="${first_id}"
   MASTER_LAST_ID="${last_id}"
-  for ((i = 1; i <= MACHINE_COUNT; i++)); do
-    mid="$(machine_id_for_index "${i}")"
-    eval "MACHINE_COUNT_${i}=${machine_counts[${mid}]:-0}"
-  done
+  MASTER_VALID_COUNT="${data_rows}"
 }
 
 write_preparation_properties() {
@@ -416,7 +563,8 @@ write_preparation_properties() {
   timestamp_ms="$(date +%s%3N 2>/dev/null || echo "$(($(date +%s) * 1000))")"
 
   cat >"${dest}" <<EOF
-schema_version=1
+portable_plan_schema_version=2
+manifest_schema_version=2
 scientific_checkpoint=${EXPECTED_COMMIT}
 scientific_checkpoint_short=${EXPECTED_COMMIT_SHORT}
 machine_count=${MACHINE_COUNT}
@@ -427,9 +575,9 @@ production_config_sha256=${production_config_canonical_sha256}
 production_config_canonical_sha256=${production_config_canonical_sha256}
 production_config_file_sha256=${production_config_file_sha256}
 master_manifest_path=${JOB_ROOT}/plan/master_batch_manifest.csv
-valid_tiff_count=${EXPECTED_TIFF_COUNT}
-first_image_id=${EXPECTED_FIRST_IMAGE_ID}
-last_image_id=${EXPECTED_LAST_IMAGE_ID}
+valid_tiff_count=${MASTER_VALID_COUNT}
+first_image_id=${MASTER_FIRST_ID}
+last_image_id=${MASTER_LAST_ID}
 preparation_timestamp_epoch_ms=${timestamp_ms}
 EOF
 }
@@ -437,7 +585,7 @@ EOF
 print_success() {
   local i mid
   echo "LUMEN MASTER BATCH PREPARATION SUCCESS"
-  echo "TIFFs: ${EXPECTED_TIFF_COUNT}"
+  echo "TIFFs: ${MASTER_VALID_COUNT}"
   echo "first: ${MASTER_FIRST_ID}"
   echo "last: ${MASTER_LAST_ID}"
   echo "machines: ${MACHINE_COUNT}"
@@ -453,6 +601,7 @@ print_success() {
   echo "configuration canonical SHA-256: ${PRODUCTION_CONFIG_CANONICAL_SHA256}"
   echo "configuration file SHA-256: ${PRODUCTION_CONFIG_FILE_SHA256}"
   echo "assignment order: verified"
+  echo "core integrity: verified"
   echo "source TIFFs modified: NO"
 }
 
@@ -535,7 +684,6 @@ main() {
       "configuration_sha256 mismatch between batch_plan_report.txt (${production_config_canonical_sha256}) and machine_assignment_summary.txt (${summary_canonical})"
   fi
 
-  # Best-effort log cross-check; report is authoritative if the log line is absent.
   if grep -Eq 'configuration SHA-256:[[:space:]]*[0-9a-f]{64}' \
       "${STAGING_ROOT}/preparation.log"; then
     local log_canonical

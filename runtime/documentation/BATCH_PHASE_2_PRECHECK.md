@@ -43,8 +43,7 @@ The entry point must **not** construct `new ImageJ(...)` under `--headless` (tha
 - automatic sample region suitable for the conservative mask policy
 - red scale bar outside the sample (terminal-tick centerlines preferred)
 
-Portable deployment still uses the previous temporary six-digit checkpoint until
-a later re-pin phase.
+Portable scripts target scientific checkpoint `9a53b84`; PPTTCS identity and manifest schema 2 are the active portable contract. Historical six-digit notes remain only as history.
 
 ## Configuration thresholds
 
