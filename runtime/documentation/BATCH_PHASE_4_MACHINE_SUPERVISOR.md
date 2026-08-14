@@ -204,7 +204,7 @@ Created when the execution supervisor runs (not during read-only planning):
 Image IDs are `PPTTCS` (plot / tree / core A|B / segment 1–5). Canonical order is
 `CoreSegmentId.compareTo` (plot → tree → core A before B → segment order).
 
-Portable scripts target scientific checkpoint `9a53b84` (PPTTCS / manifest schema 2).
+Portable scripts target scientific checkpoint `6dd42df` (PPTTCS / manifest schema 2).
 ## Authoritative inputs
 
 | Input | Source |
@@ -245,7 +245,7 @@ are `FULL_SUCCESS` **and** local physical-core coordinates are assembled), the
 installed launcher can publish the completed machine dataset:
 
 ```bash
-$HOME/LumenRuntime/9a53b84/run_lumen_machine.sh \
+$HOME/LumenRuntime/6dd42df/run_lumen_machine.sh \
   --export-results <existing-completed-results-root>
 ```
 

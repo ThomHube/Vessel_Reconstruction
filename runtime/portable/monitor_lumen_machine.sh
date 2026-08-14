@@ -2,7 +2,7 @@
 # Lumen portable machine-status monitor (read-only, one-shot snapshot).
 #
 # Installed location:
-#   $HOME/LumenRuntime/9a53b84/monitor_lumen_machine.sh
+#   $HOME/LumenRuntime/6dd42df/monitor_lumen_machine.sh
 #
 # Usage:
 #   ./monitor_lumen_machine.sh
@@ -14,8 +14,8 @@
 #
 set -euo pipefail
 
-readonly EXPECTED_COMMIT='9a53b843347b909dcc1762157aaf1d0c96126083'
-readonly EXPECTED_COMMIT_SHORT='9a53b84'
+readonly EXPECTED_COMMIT='6dd42dfc0447255fc7b65d476b5a5048229eba47'
+readonly EXPECTED_COMMIT_SHORT='6dd42df'
 
 readonly EXIT_USAGE=2
 readonly EXIT_VALIDATION=3

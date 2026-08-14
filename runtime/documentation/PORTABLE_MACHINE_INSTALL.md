@@ -9,25 +9,25 @@ portable hard-drive package. No root privileges are required.
 **current user's home directory**:
 
 ```text
-$HOME/LumenRuntime/9a53b84
+$HOME/LumenRuntime/6dd42df
 ```
 
 It also validates and installs the portable launcher as:
 
 ```text
-$HOME/LumenRuntime/9a53b84/run_lumen_machine.sh
+$HOME/LumenRuntime/6dd42df/run_lumen_machine.sh
 ```
 
 and the read-only status monitor as:
 
 ```text
-$HOME/LumenRuntime/9a53b84/monitor_lumen_machine.sh
+$HOME/LumenRuntime/6dd42df/monitor_lumen_machine.sh
 ```
 
 and the operator production starter as:
 
 ```text
-$HOME/LumenRuntime/9a53b84/start_lumen_processing.sh
+$HOME/LumenRuntime/6dd42df/start_lumen_processing.sh
 ```
 
 It does **not** modify:
@@ -43,9 +43,9 @@ Unrelated installed software is left untouched.
 
 **Git does not need to be installed** on a processing machine. The local project
 is restored from the immutable source archive
-`canonical/source/minimal-ij1-plugin-ellipse_9a53b84.tar.gz`. The complete Git
+`canonical/source/minimal-ij1-plugin-ellipse_6dd42df.tar.gz`. The complete Git
 repository/history remains separately on the external drive as
-`canonical/source/minimal-ij1-plugin-ellipse_9a53b84.bundle` and is only needed
+`canonical/source/minimal-ij1-plugin-ellipse_6dd42df.bundle` and is only needed
 if someone later wants to restore the development repository from that bundle.
 
 ## Deployed layout on the drive
@@ -90,9 +90,9 @@ Allowed machine IDs: `machine_01` … `machine_99`.
 After a successful install, the installed launcher supports:
 
 ```bash
-$HOME/LumenRuntime/9a53b84/run_lumen_machine.sh --verify-only
-$HOME/LumenRuntime/9a53b84/run_lumen_machine.sh --precheck-only
-$HOME/LumenRuntime/9a53b84/run_lumen_machine.sh --full-only <tile-profile-index>
+$HOME/LumenRuntime/6dd42df/run_lumen_machine.sh --verify-only
+$HOME/LumenRuntime/6dd42df/run_lumen_machine.sh --precheck-only
+$HOME/LumenRuntime/6dd42df/run_lumen_machine.sh --full-only <tile-profile-index>
 ```
 
 `--verify-only` validates the portable runtime and controller classes.
@@ -124,11 +124,11 @@ Before publishing the final directory it checks, among other things:
 - extracted source tree contains required project files
   (`pom.xml`, batch scripts, key Java sources)
 - production checkpoint recorded as
-  `9a53b843347b909dcc1762157aaf1d0c96126083`
+  `6dd42dfc0447255fc7b65d476b5a5048229eba47`
 - Classifier9.model SHA-256
 - Fiji launcher `ImageJ-linux64` is executable
 - Fiji plugin JAR SHA-256 fixed to
-  `0277c6453e81cc11e17f22c5e7021077a254457278185b76e87db54ae23b4414`
+  `8c74d803a286dcd1a83e27c7f33a92d99adb2638cc69dbb301356865e198ae54`
 - portable `java` / `javac` run
 - portable Maven reports Java 21 using only the portable JDK
 - Maven repository is non-empty
@@ -136,8 +136,8 @@ Before publishing the final directory it checks, among other things:
 - staged monitor SHA-256 + `bash -n`
 - staged starter SHA-256 + `bash -n`
 
-Installation is staged under `$HOME/LumenRuntime/.install_staging_9a53b84_<pid>`
-and moved atomically to `$HOME/LumenRuntime/9a53b84` only after all checks pass.
+Installation is staged under `$HOME/LumenRuntime/.install_staging_6dd42df_<pid>`
+and moved atomically to `$HOME/LumenRuntime/6dd42df` only after all checks pass.
 
 If that exact install directory already exists and `installation.properties`
 matches this checkpoint **including** validated `launcher_path` /

@@ -1,7 +1,7 @@
 # Portable Machine Run
 
 `run_lumen_machine.sh` is the user-local launcher for an installed
-`LumenRuntime/9a53b84` tree. It discovers the installation root from its own
+`LumenRuntime/6dd42df` tree. It discovers the installation root from its own
 path and uses only the portable JDK, Maven, Fiji, classifier, and config that
 `install_machine.sh` placed under that root.
 
@@ -30,7 +30,7 @@ It also requires:
 Requires an imported machine job at:
 
 ```text
-$HOME/LumenRuntime/9a53b84/work/<machine-id>/job
+$HOME/LumenRuntime/6dd42df/work/<machine-id>/job
 ```
 
 Before launching precheck it verifies:
@@ -145,7 +145,7 @@ classification, reconstruction, and the production dataset all live under the
 imported local job:
 
 ```text
-$HOME/LumenRuntime/9a53b84/work/<machine-id>/job
+$HOME/LumenRuntime/6dd42df/work/<machine-id>/job
 ```
 
 The portable collection drive is **not** the active processing filesystem.
@@ -240,11 +240,10 @@ System Java/Maven and `~/.m2` are not used.
 
 ## Installer hash note
 
-Changing `run_lumen_machine.sh` changes its SHA-256. The installer still pins
-the previous validated launcher hash until this new launcher is tested and a
-separate deployment bite updates `install_machine.sh`. Do not place this
-launcher into the canonical portable deployment set (`LumenPortable/install/`)
-until that pin is updated.
+Changing `run_lumen_machine.sh` changes its SHA-256. `install_machine.sh`
+pins the launcher, monitor, and starter hashes for scientific checkpoint
+`6dd42df`. After any further edit to those scripts, recompute and update
+those pins before publishing `LumenPortable/install/`.
 
 ## Not in this phase
 

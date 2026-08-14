@@ -3,7 +3,7 @@
 Import **one** verified machine package into an installed laboratory
 `LumenRuntime` after:
 
-1. `install_machine.sh` has installed `$HOME/LumenRuntime/9a53b84`
+1. `install_machine.sh` has installed `$HOME/LumenRuntime/6dd42df`
 2. Central prepare/package scripts have produced schema-2 PPTTCS packages
 
 ## Usage
@@ -35,7 +35,7 @@ Requires:
 7. Re-verify the staging copy, then atomically publish:
 
 ```text
-$HOME/LumenRuntime/9a53b84/work/machine_XX/job/
+$HOME/LumenRuntime/6dd42df/work/machine_XX/job/
 ```
 
 Generated `import.properties` uses `import.schema_version=2`.

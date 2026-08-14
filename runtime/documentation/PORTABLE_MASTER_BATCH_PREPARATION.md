@@ -7,7 +7,7 @@ Individual lab machines must **not** independently repartition the dataset.
 
 ## Usage
 
-Requires an installed portable runtime at `$HOME/LumenRuntime/9a53b84`.
+Requires an installed portable runtime at `$HOME/LumenRuntime/6dd42df`.
 
 ```bash
 ./prepare_master_batch.sh \

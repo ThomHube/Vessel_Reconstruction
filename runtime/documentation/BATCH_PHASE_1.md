@@ -69,8 +69,8 @@ PPTTCS (no fixed expected ID list). Use `false`.
 
 ## Portable deployment note
 
-Portable scripts target scientific checkpoint `9a53b84` with PPTTCS identity
-and batch-manifest `schema_version=2`. Canonical drive assets for `9a53b84`
+Portable scripts target scientific checkpoint `6dd42df` with PPTTCS identity
+and batch-manifest `schema_version=2`. Canonical drive assets for `6dd42df`
 must be published before laboratory installation.
 
 ## Outputs

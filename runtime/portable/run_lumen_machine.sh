@@ -2,7 +2,7 @@
 # Lumen portable local runtime launcher.
 #
 # Installed location:
-#   $HOME/LumenRuntime/9a53b84/run_lumen_machine.sh
+#   $HOME/LumenRuntime/6dd42df/run_lumen_machine.sh
 #
 # Supported modes:
 #   ./run_lumen_machine.sh --verify-only
@@ -10,15 +10,15 @@
 #   ./run_lumen_machine.sh --full-only <tile-profile-index>
 #   ./run_lumen_machine.sh --export-results <completed-results-root>
 #
-# NOTE: Changing this file changes its SHA-256. The installer still pins the
-# previous launcher hash until a separate deployment bite updates it.
+# NOTE: Changing this file changes its SHA-256. install_machine.sh must pin
+# the matching launcher hash for this scientific checkpoint.
 #
 set -euo pipefail
 
-readonly EXPECTED_COMMIT='9a53b843347b909dcc1762157aaf1d0c96126083'
-readonly EXPECTED_COMMIT_SHORT='9a53b84'
+readonly EXPECTED_COMMIT='6dd42dfc0447255fc7b65d476b5a5048229eba47'
+readonly EXPECTED_COMMIT_SHORT='6dd42df'
 readonly EXPECTED_CLASSIFIER_SHA256='d109f00d1ca16447bc433303cb6f5ec1a5a9d27a3215b24d87df77346b04340c'
-readonly EXPECTED_PLUGIN_SHA256='0277c6453e81cc11e17f22c5e7021077a254457278185b76e87db54ae23b4414'
+readonly EXPECTED_PLUGIN_SHA256='8c74d803a286dcd1a83e27c7f33a92d99adb2638cc69dbb301356865e198ae54'
 readonly PLUGIN_JAR_NAME='VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar'
 readonly CLASSIFIER_NAME='Classifier9.model'
 

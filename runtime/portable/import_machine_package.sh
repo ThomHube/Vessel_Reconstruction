@@ -7,8 +7,8 @@
 #
 set -euo pipefail
 
-readonly EXPECTED_COMMIT='9a53b843347b909dcc1762157aaf1d0c96126083'
-readonly EXPECTED_COMMIT_SHORT='9a53b84'
+readonly EXPECTED_COMMIT='6dd42dfc0447255fc7b65d476b5a5048229eba47'
+readonly EXPECTED_COMMIT_SHORT='6dd42df'
 readonly LUMEN_RUNTIME_ROOT="${HOME}/LumenRuntime/${EXPECTED_COMMIT_SHORT}"
 
 readonly EXIT_USAGE=2
@@ -206,7 +206,7 @@ usage() {
 Usage: ./import_machine_package.sh <machine-package-root>
 
 Imports one verified machine package into:
-  $HOME/LumenRuntime/9a53b84/work/<machine-id>/job
+  $HOME/LumenRuntime/6dd42df/work/<machine-id>/job
 
 Does not run precheck or processing.
 Requires package.schema_version=2 and manifest.schema_version=2.

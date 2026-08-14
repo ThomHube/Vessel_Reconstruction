@@ -1,7 +1,7 @@
 # Portable Machine Start
 
 `start_lumen_processing.sh` is the operator-facing production start command for
-an installed `LumenRuntime/9a53b84` machine.
+an installed `LumenRuntime/6dd42df` machine.
 
 It is an operational wrapper only. It does **not** reimplement classification or
 reconstruction. After pre-flight checks it starts the already validated launcher:
@@ -13,7 +13,7 @@ reconstruction. After pre-flight checks it starts the already validated launcher
 ## Installed location
 
 ```text
-$HOME/LumenRuntime/9a53b84/start_lumen_processing.sh
+$HOME/LumenRuntime/6dd42df/start_lumen_processing.sh
 ```
 
 Source on the portable drive (beside the installer):
@@ -25,7 +25,7 @@ LumenPortable/install/start_lumen_processing.sh
 ## Operator command
 
 ```bash
-$HOME/LumenRuntime/9a53b84/start_lumen_processing.sh
+$HOME/LumenRuntime/6dd42df/start_lumen_processing.sh
 ```
 
 No arguments. The production tile profile is fixed:
@@ -84,7 +84,7 @@ overnight processing.
 ## Monitor
 
 ```bash
-watch -n 10 $HOME/LumenRuntime/9a53b84/monitor_lumen_machine.sh
+watch -n 10 $HOME/LumenRuntime/6dd42df/monitor_lumen_machine.sh
 ```
 
 ## Operational control files

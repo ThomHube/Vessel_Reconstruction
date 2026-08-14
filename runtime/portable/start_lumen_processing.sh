@@ -2,7 +2,7 @@
 # Lumen portable production start wrapper (operator-facing).
 #
 # Installed location:
-#   $HOME/LumenRuntime/9a53b84/start_lumen_processing.sh
+#   $HOME/LumenRuntime/6dd42df/start_lumen_processing.sh
 #
 # Usage:
 #   ./start_lumen_processing.sh
@@ -15,8 +15,8 @@
 #
 set -euo pipefail
 
-readonly EXPECTED_COMMIT='9a53b843347b909dcc1762157aaf1d0c96126083'
-readonly EXPECTED_COMMIT_SHORT='9a53b84'
+readonly EXPECTED_COMMIT='6dd42dfc0447255fc7b65d476b5a5048229eba47'
+readonly EXPECTED_COMMIT_SHORT='6dd42df'
 readonly PRODUCTION_TILE_PROFILE_INDEX=2
 readonly PRODUCTION_TILE_PROFILE='1024x1024'
 readonly LAUNCHER_NAME='run_lumen_machine.sh'
