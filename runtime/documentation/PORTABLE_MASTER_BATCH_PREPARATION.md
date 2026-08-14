@@ -17,15 +17,34 @@ Requires an installed portable runtime at `$HOME/LumenRuntime/6dd42df`.
 ```
 
 - `all-tiffs-input-root` — read-only source directory of production TIFFs
+  (`tiffs/<segment_id>/<segment_id>.tif`; do not flatten)
 - `portable-job-root` — new job directory (must not already exist)
 - `machine-count` — integer `1` … `99`
+
+## Authoritative TIFF layout
+
+Production sources are nested one directory below the TIFF root:
+
+```text
+tiffs/
+  0105A2/
+    0105A2.tif
+```
+
+There are no TIFFs directly in `tiffs/`. Do **not** move segments out of their
+folders. `prepare_master_batch.sh` therefore always writes
+`input.recursive=true` into `production_batch.properties`, regardless of
+`default_batch.properties`. Nested `source_relative_path` values
+(`0105A2/0105A2.tif`) are preserved through machine-package creation and
+machine import.
 
 ## What this phase does
 
 1. Calls `run_lumen_machine.sh --verify-only` so portable controller classes exist.
 2. Writes `production_batch.properties` from `default_batch.properties`, setting
-   `machines.count=<N>` and forcing
-   `input.require_complete_expected_set=false` (PPTTCS has no fixed expected set).
+   `machines.count=<N>`, forcing
+   `input.require_complete_expected_set=false` (PPTTCS has no fixed expected set),
+   and forcing `input.recursive=true` for the nested production TIFF layout.
 3. Runs the existing `BatchManifestPlannerCli` with portable Java against the
    source TIFF root.
 4. Validates schema-2 manifests, PPTTCS identity, canonical order, configuration

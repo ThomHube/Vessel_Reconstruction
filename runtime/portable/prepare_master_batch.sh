@@ -302,6 +302,7 @@ write_production_config() {
   local dest="$1"
   local saw_complete=0
   local saw_machines=0
+  local saw_recursive=0
   local line
   : >"${dest}"
   while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -316,6 +317,13 @@ write_production_config() {
         printf 'input.require_complete_expected_set=false\n' >>"${dest}"
         saw_complete=1
         ;;
+      input.recursive=*)
+        # Authoritative portable production TIFFs live at
+        # tiffs/<segment_id>/<segment_id>.tif. Force recursive discovery
+        # regardless of default_batch.properties.
+        printf 'input.recursive=true\n' >>"${dest}"
+        saw_recursive=1
+        ;;
       *)
         printf '%s\n' "${line}" >>"${dest}"
         ;;
@@ -327,6 +335,9 @@ write_production_config() {
   fi
   if [[ "${saw_complete}" -ne 1 ]]; then
     printf 'input.require_complete_expected_set=false\n' >>"${dest}"
+  fi
+  if [[ "${saw_recursive}" -ne 1 ]]; then
+    printf 'input.recursive=true\n' >>"${dest}"
   fi
 }
 

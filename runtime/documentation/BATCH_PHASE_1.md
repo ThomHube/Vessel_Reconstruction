@@ -67,6 +67,20 @@ image counts.
 `input.require_complete_expected_set=true` is **no longer supported** under
 PPTTCS (no fixed expected ID list). Use `false`.
 
+## Nested production TIFF layout
+
+The authoritative portable-production source layout is:
+
+```text
+tiffs/<segment_id>/<segment_id>.tif
+```
+
+Example: `tiffs/0105A2/0105A2.tif`. Do **not** flatten those folders.
+`prepare_master_batch.sh` forces `input.recursive=true` in the generated
+production config so `BatchTiffDiscovery` finds nested files. Nested
+`source_relative_path` values are preserved by machine-package creation and
+import.
+
 ## Portable deployment note
 
 Portable scripts target scientific checkpoint `6dd42df` with PPTTCS identity
