@@ -30,6 +30,12 @@ and the operator production starter as:
 $HOME/LumenRuntime/6dd42df/start_lumen_processing.sh
 ```
 
+and the one-click local autopilot as:
+
+```text
+$HOME/LumenRuntime/6dd42df/lumen_machine_autopilot.sh
+```
+
 It does **not** modify:
 
 - system Java
@@ -59,6 +65,7 @@ LumenPortable/
     run_lumen_machine.sh
     monitor_lumen_machine.sh
     start_lumen_processing.sh
+    lumen_machine_autopilot.sh
     PORTABLE_MACHINE_INSTALL.md
     PORTABLE_MACHINE_RUN.md
     PORTABLE_MACHINE_MONITOR.md
@@ -71,10 +78,11 @@ The installer discovers `LumenPortable` from its own script path. It does not
 hard-code host-specific mount points.
 
 Before changing the local machine, the installer requires
-`run_lumen_machine.sh`, `monitor_lumen_machine.sh`, and
-`start_lumen_processing.sh` next to `install_machine.sh`, verifies each fixed
-SHA-256, copies them into the staged install root, marks them executable
-(`chmod 755`), and checks `bash -n` on the staged copies.
+`run_lumen_machine.sh`, `monitor_lumen_machine.sh`,
+`start_lumen_processing.sh`, and `lumen_machine_autopilot.sh` next to
+`install_machine.sh`, verifies each fixed SHA-256, copies them into the staged
+install root, marks them executable (`chmod 755`), and checks `bash -n` on the
+staged copies.
 
 ## Usage
 
@@ -121,6 +129,7 @@ Before publishing the final directory it checks, among other things:
 - portable launcher exists beside the installer and matches the fixed SHA-256
 - portable monitor exists beside the installer and matches the fixed SHA-256
 - portable starter exists beside the installer and matches the fixed SHA-256
+- portable autopilot exists beside the installer and matches the fixed SHA-256
 - extracted source tree contains required project files
   (`pom.xml`, batch scripts, key Java sources)
 - production checkpoint recorded as

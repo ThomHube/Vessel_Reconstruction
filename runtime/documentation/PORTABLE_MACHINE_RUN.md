@@ -249,7 +249,9 @@ those pins before publishing `LumenPortable/install/`.
 
 - no live progress polling / ETA UI
 - no automatic precheck before `--full-only`
-- no automatic export after `--full-only` (export is an explicit operator step)
+- no automatic export after `--full-only` (export is an explicit operator step
+  of this launcher; the one-click autopilot in `PORTABLE_MACHINE_AUTOPILOT.md`
+  calls `--export-results` after `MACHINE_SUCCESS`)
 - no local job/dataset cleanup after export
 - no core-level cumulative coordinate assembly during export
   (`MACHINE_SUCCESS` already means the local dataset was assembled)

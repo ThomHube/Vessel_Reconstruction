@@ -138,6 +138,10 @@ If the wrapper's runner PID is still active, or a conservative process scan find
 this installation's full-processing work, the wrapper reports
 `LUMEN PROCESSING ALREADY RUNNING` and does not start a second runner.
 
+The one-click machine autopilot (`PORTABLE_MACHINE_AUTOPILOT.md`) is the
+operator-facing wrapper that runs precheck, then this starter, then export.
+This file remains the production start command for full processing itself.
+
 ## Restart / resume
 
 If a previous run has ended and nothing is active, running

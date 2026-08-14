@@ -16,11 +16,13 @@ readonly EXPECTED_PLUGIN_SHA256='8c74d803a286dcd1a83e27c7f33a92d99adb2638cc69dbb
 readonly EXPECTED_LAUNCHER_SHA256='28d323d24da9f6ce368518263826057c759c9f162a211972114dcea8c680a311'
 readonly EXPECTED_MONITOR_SHA256='266c211d38d928c1db1cc36676f403bd3fc8dcc053b27e1a8ef3a72d9862cfc6'
 readonly EXPECTED_STARTER_SHA256='0206c057b6f40d69b48f2e68625ff463c193ce494ca75c4974affa61b6eb2a7f'
+readonly EXPECTED_AUTOPILOT_SHA256='c26829707008a925dfab4a1d58b9f0b57eb03ff633f877bb00df1ce0ef46775c'
 readonly PLUGIN_JAR_NAME='VesselReconstructionEllipse-0.1.0-SNAPSHOT.jar'
 readonly CLASSIFIER_NAME='Classifier9.model'
 readonly LAUNCHER_NAME='run_lumen_machine.sh'
 readonly MONITOR_NAME='monitor_lumen_machine.sh'
 readonly STARTER_NAME='start_lumen_processing.sh'
+readonly AUTOPILOT_NAME='lumen_machine_autopilot.sh'
 
 readonly EXIT_USAGE=2
 readonly EXIT_VALIDATION=3
@@ -37,6 +39,7 @@ MACHINE_ID=''
 SOURCE_LAUNCHER_PATH=''
 SOURCE_MONITOR_PATH=''
 SOURCE_STARTER_PATH=''
+SOURCE_AUTOPILOT_PATH=''
 
 cleanup_staging() {
   local staging="${STAGING_ROOT:-}"
@@ -184,6 +187,13 @@ verify_canonical_inputs() {
     "${SOURCE_STARTER_PATH}" \
     "${EXPECTED_STARTER_SHA256}" \
     "portable starter"
+
+  SOURCE_AUTOPILOT_PATH="${INSTALLER_DIR}/${AUTOPILOT_NAME}"
+  require_file "${SOURCE_AUTOPILOT_PATH}" "portable autopilot (${AUTOPILOT_NAME})"
+  verify_sha256 \
+    "${SOURCE_AUTOPILOT_PATH}" \
+    "${EXPECTED_AUTOPILOT_SHA256}" \
+    "portable autopilot"
 }
 
 prop_value() {
@@ -244,6 +254,21 @@ stage_and_verify_starter() {
     "staged portable starter"
   if ! bash -n -- "${staging_starter}"; then
     fail "${EXIT_VERIFY}" "Staged starter failed bash -n: ${staging_starter}"
+  fi
+}
+
+stage_and_verify_autopilot() {
+  local staging_autopilot="${STAGING_ROOT}/${AUTOPILOT_NAME}"
+  cp -f -- "${SOURCE_AUTOPILOT_PATH}" "${staging_autopilot}"
+  chmod 755 -- "${staging_autopilot}"
+  [[ -x "${staging_autopilot}" ]] \
+    || fail "${EXIT_VERIFY}" "Staged autopilot is not executable: ${staging_autopilot}"
+  verify_sha256 \
+    "${staging_autopilot}" \
+    "${EXPECTED_AUTOPILOT_SHA256}" \
+    "staged portable autopilot"
+  if ! bash -n -- "${staging_autopilot}"; then
+    fail "${EXIT_VERIFY}" "Staged autopilot failed bash -n: ${staging_autopilot}"
   fi
 }
 
@@ -381,6 +406,7 @@ write_installation_properties() {
   local launcher_path="${install_root}/${LAUNCHER_NAME}"
   local monitor_path="${install_root}/${MONITOR_NAME}"
   local starter_path="${install_root}/${STARTER_NAME}"
+  local autopilot_path="${install_root}/${AUTOPILOT_NAME}"
   local timestamp_ms
   timestamp_ms="$(date +%s%3N 2>/dev/null || echo "$(($(date +%s) * 1000))")"
 
@@ -394,6 +420,7 @@ plugin_sha256=${EXPECTED_PLUGIN_SHA256}
 launcher_sha256=${EXPECTED_LAUNCHER_SHA256}
 monitor_sha256=${EXPECTED_MONITOR_SHA256}
 starter_sha256=${EXPECTED_STARTER_SHA256}
+autopilot_sha256=${EXPECTED_AUTOPILOT_SHA256}
 installation_root=${install_root}
 project_root=${project_root}
 fiji_root=${fiji_root}
@@ -406,6 +433,7 @@ work_root=${work_root}
 launcher_path=${launcher_path}
 monitor_path=${monitor_path}
 starter_path=${starter_path}
+autopilot_path=${autopilot_path}
 installation_timestamp_epoch_ms=${timestamp_ms}
 EOF
 }
@@ -532,6 +560,40 @@ check_existing_installation() {
       "Existing installation starter failed bash -n: ${starter_path}"
   fi
 
+  # Autopilot is required on new installs. Existing 6dd42df trees that predate
+  # Issue 7H remain resumable: missing autopilot fields are not a conflict.
+  local autopilot_path autopilot_sha
+  autopilot_path="$(prop_value "${props}" "autopilot_path" || true)"
+  autopilot_sha="$(prop_value "${props}" "autopilot_sha256" || true)"
+  if [[ -n "${autopilot_path}" || -n "${autopilot_sha}" ]]; then
+    if [[ "${autopilot_sha}" != "${EXPECTED_AUTOPILOT_SHA256}" ]]; then
+      fail "${EXIT_INSTALL}" \
+        "Existing installation autopilot_sha256 mismatch at ${install_root}: expected ${EXPECTED_AUTOPILOT_SHA256}, found ${autopilot_sha}"
+    fi
+    if [[ "${autopilot_path}" != "${install_root}/${AUTOPILOT_NAME}" ]]; then
+      fail "${EXIT_INSTALL}" \
+        "Existing installation autopilot_path mismatch: expected ${install_root}/${AUTOPILOT_NAME}, found ${autopilot_path}"
+    fi
+    if [[ ! -f "${autopilot_path}" ]]; then
+      fail "${EXIT_INSTALL}" \
+        "Existing installation missing autopilot file: ${autopilot_path}"
+    fi
+    if [[ ! -x "${autopilot_path}" ]]; then
+      fail "${EXIT_INSTALL}" \
+        "Existing installation autopilot is not executable: ${autopilot_path}"
+    fi
+    local actual_autopilot_sha
+    actual_autopilot_sha="$(sha256_of "${autopilot_path}")"
+    if [[ "${actual_autopilot_sha}" != "${EXPECTED_AUTOPILOT_SHA256}" ]]; then
+      fail "${EXIT_INSTALL}" \
+        "Existing installation autopilot SHA-256 mismatch: expected ${EXPECTED_AUTOPILOT_SHA256}, found ${actual_autopilot_sha}"
+    fi
+    if ! bash -n -- "${autopilot_path}"; then
+      fail "${EXIT_INSTALL}" \
+        "Existing installation autopilot failed bash -n: ${autopilot_path}"
+    fi
+  fi
+
   echo "LUMEN INSTALLATION ALREADY PRESENT"
   echo "machine: ${existing_machine:-unknown}"
   echo "checkpoint: ${EXPECTED_COMMIT_SHORT}"
@@ -539,6 +601,11 @@ check_existing_installation() {
   echo "launcher: verified"
   echo "monitor: verified"
   echo "starter: verified"
+  if [[ -n "${autopilot_path}" ]]; then
+    echo "autopilot: verified"
+  else
+    echo "autopilot: not present (pre-7H install; one-click will copy it locally)"
+  fi
   echo "No changes made."
   exit 0
 }
@@ -609,6 +676,8 @@ main() {
   stage_and_verify_monitor
   echo "Installing portable starter..."
   stage_and_verify_starter
+  echo "Installing portable autopilot..."
+  stage_and_verify_autopilot
 
   echo "Extracting Fiji..."
   extract_normalized_dir \
@@ -711,6 +780,7 @@ source checkpoint: verified
 launcher: verified
 monitor: verified
 starter: verified
+autopilot: verified
 EOF
 }
 

@@ -32,6 +32,20 @@ Creates:
 
 If `machine_packages/` already exists, the script fails and leaves it unchanged.
 
+Also writes:
+
+```text
+<job-root>/launchers/
+  lumen_machine_start.sh
+  START_machine_XX_<coreId>.sh
+```
+
+Each generated `START_*.sh` encodes only machine ID, core ID, and
+`../machine_packages/<machine-id>`. Shared one-click logic lives in
+`lumen_machine_start.sh` / `lumen_machine_autopilot.sh` (see
+`PORTABLE_MACHINE_AUTOPILOT.md`).
+
+
 Every configured machine must receive at least one physical core (non-empty
 manifest). Empty machine slices fail clearly so operators can reduce
 `machines.count`.

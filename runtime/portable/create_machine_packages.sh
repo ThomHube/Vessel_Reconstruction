@@ -506,6 +506,7 @@ package_one_machine() {
 
   local first_id="${image_ids[0]}"
   local last_id="${image_ids[$((data_rows - 1))]}"
+  local first_core_id="${first_id:0:5}"
   local timestamp_ms
   timestamp_ms="$(date +%s%3N 2>/dev/null || echo "$(($(date +%s) * 1000))")"
 
@@ -562,6 +563,7 @@ EOF
   eval "MACHINE_COUNT_${index}=${data_rows}"
   eval "MACHINE_FIRST_${index}=${first_id}"
   eval "MACHINE_LAST_${index}=${last_id}"
+  eval "MACHINE_CORE_${index}=${first_core_id}"
 }
 
 global_cross_checks() {
@@ -613,8 +615,35 @@ global_cross_checks() {
     || fail "${EXIT_VERIFY}" "master last_image_id mismatch vs preparation.properties"
 }
 
+write_one_click_launchers() {
+  local helper src_dir
+  src_dir="$(cd -P "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  helper="${src_dir}/write_machine_start_launcher.sh"
+  require_file "${helper}" "write_machine_start_launcher.sh"
+
+  local launchers_dir="${JOB_ROOT}/launchers"
+  if [[ -e "${launchers_dir}" ]]; then
+    fail "${EXIT_VALIDATION}" \
+      "launchers directory already exists; refusing to overwrite: ${launchers_dir}"
+  fi
+  mkdir -p -- "${launchers_dir}"
+
+  local i mid core_var core_id
+  for ((i = 1; i <= MACHINE_COUNT; i++)); do
+    mid="$(machine_id_for_index "${i}")"
+    core_var="MACHINE_CORE_${i}"
+    core_id="${!core_var}"
+    [[ -n "${core_id}" ]] || fail "${EXIT_VERIFY}" "${mid}: missing core_id for launcher"
+    bash -- "${helper}" \
+      "${launchers_dir}" \
+      "${mid}" \
+      "${core_id}" \
+      "../machine_packages/${mid}"
+  done
+}
+
 print_success() {
-  local i mid count_var first_var last_var
+  local i mid count_var first_var last_var core_var
   echo "LUMEN MACHINE PACKAGE CREATION SUCCESS"
   echo "machines: ${MACHINE_COUNT}"
   echo "TIFFs packaged: ${PREP_VALID_COUNT}"
@@ -624,10 +653,12 @@ print_success() {
     count_var="MACHINE_COUNT_${i}"
     first_var="MACHINE_FIRST_${i}"
     last_var="MACHINE_LAST_${i}"
-    echo "${mid}: ${!count_var} | ${!first_var} -> ${!last_var}"
+    core_var="MACHINE_CORE_${i}"
+    echo "${mid}: ${!count_var} | ${!first_var} -> ${!last_var} | core ${!core_var} | START_${mid}_${!core_var}.sh"
   done
   echo
   echo "machine packages: ${JOB_ROOT}/machine_packages"
+  echo "one-click launchers: ${JOB_ROOT}/launchers"
   echo "source TIFFs modified: NO"
   echo "precheck launched: NO"
   echo "processing launched: NO"
@@ -679,6 +710,9 @@ main() {
   echo "Publishing machine_packages..."
   mv -- "${STAGING_ROOT}" "${JOB_ROOT}/machine_packages"
   STAGING_ROOT=''
+
+  echo "Writing one-click launchers..."
+  write_one_click_launchers
 
   print_success
 }
