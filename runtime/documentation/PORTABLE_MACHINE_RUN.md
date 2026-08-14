@@ -11,6 +11,7 @@ path and uses only the portable JDK, Maven, Fiji, classifier, and config that
 ./run_lumen_machine.sh --verify-only
 ./run_lumen_machine.sh --precheck-only
 ./run_lumen_machine.sh --full-only <tile-profile-index>
+./run_lumen_machine.sh --export-results <completed-results-root>
 ```
 
 ### `--verify-only`
@@ -89,6 +90,8 @@ This mode does **not** automatically run `--precheck-only` /
 - other ready images may still continue
 - already `FULL_SUCCESS` images are skipped
 - resumable reconstruction may resume
+- after all assigned images are `FULL_SUCCESS`, local physical-core coordinate
+  assembly runs before `MACHINE_SUCCESS`
 - a machine with some blocked images may still process eligible images and
   exit `10`
 
@@ -135,6 +138,96 @@ Live ETA / progress display is **not** part of this phase. The next phase will
 build a reader around those files. This mode does not delete prior precheck,
 classification, reconstruction, or supervisor outputs.
 
+## Local processing vs portable collection
+
+After a successful package import, the assigned TIFFs, precheck outputs,
+classification, reconstruction, and the production dataset all live under the
+imported local job:
+
+```text
+$HOME/LumenRuntime/9a53b84/work/<machine-id>/job
+```
+
+The portable collection drive is **not** the active processing filesystem.
+After import checksums succeed, that drive may be disconnected for the duration
+of processing.
+
+## `--export-results <completed-results-root>`
+
+After the machine supervisor reports `MACHINE_SUCCESS`, the local dataset
+already contains physical-core longitudinal coordinates
+(`global_segment_start_um` / `global_longitudinal_um`). Replug the collection
+drive and export the completed local result:
+
+```bash
+./run_lumen_machine.sh --export-results "/media/operator/COLLECTION/completed_results"
+```
+
+`<completed-results-root>` must already exist as an absolute, writable
+directory. The launcher will not create a missing destination root (a typo
+must not silently create a local folder that looks like a successful ADATA
+export). Staging and the final `<machine-id>/` child are created inside that
+existing root.
+
+This mode is filesystem-only. It does **not** launch Java, Fiji, Weka, Maven,
+precheck, classification, reconstruction, or the machine supervisor. It does
+**not** calculate scientific coordinates. It does **not** run automatically
+after `--full-only`.
+
+Export is allowed only when:
+
+- no detached full-processing runner is alive (`work/<machine>/control/full_processing/runner.pid` + `kill -0`)
+- `machine_progress.properties` has `status=MACHINE_SUCCESS`,
+  `completed_count == assigned_count`, `progress_percent=100.0`, and
+  `failed_count` / `blocked_count` / `remaining_count` all `0`
+- the local dataset `job/batch/output/lumen_dataset_<machine-id>/` has the
+  canonical directory layout
+
+Copy work uses `cp -a` into a staging sibling, then verifies the copied file
+set and SHA-256 of every regular file, writes `export.properties` and
+`export_checksums.sha256`, checks the checksum manifest, and publishes with
+one `mv` to:
+
+```text
+<completed-results-root>/<machine-id>/
+  lumen_dataset_<machine-id>/
+  provenance/
+    installation.properties
+    job/...
+  export.properties
+  export_checksums.sha256
+```
+
+`job/input/` source-TIFF working copies are **not** exported. Fiji, JDK,
+Maven, the classifier, and the project tree are **not** exported. No local
+job or dataset file is modified or deleted.
+
+Optional completed-run control provenance, if present, is restricted to
+these stable files under `provenance/control/full_processing/`:
+
+- `runner.log`
+- `runner.exitcode`
+- `runner.sh`
+- `start.properties`
+
+Transient `runner.pid` is still inspected before export (`kill -0`) so a
+live runner cannot be exported over, but it is **not** copied. PID identity
+is local and can appear, go stale, or change without any scientific result
+change; including it would make an otherwise identical completed export
+differ on retry. Other unrecognized control files (`*.tmp.*`, extra
+directories) are also excluded. Absence of all four stable files is allowed
+and does not create an empty control directory.
+
+Identical retry is safe: if that destination already exists, its checksums
+are verified first. A matching current export prints
+`LUMEN RESULTS ALREADY EXPORTED` and makes no changes. A corrupt existing
+export, or a valid existing export that differs from the current local
+result, is refused and left untouched.
+
+After publication, `sha256sum -c export_checksums.sha256` in the final
+directory must succeed. The package is self-contained; the processing
+machine is not required for later verification.
+
 ## Isolated tools
 
 Verification / offline compile / precheck / full supervisor use:
@@ -157,5 +250,9 @@ until that pin is updated.
 
 - no live progress polling / ETA UI
 - no automatic precheck before `--full-only`
+- no automatic export after `--full-only` (export is an explicit operator step)
+- no local job/dataset cleanup after export
+- no core-level cumulative coordinate assembly during export
+  (`MACHINE_SUCCESS` already means the local dataset was assembled)
 - no direct `BatchFullProcessingCli` invocation from Bash
 - no `runtime/batch/run_machine.sh` execution from this launcher

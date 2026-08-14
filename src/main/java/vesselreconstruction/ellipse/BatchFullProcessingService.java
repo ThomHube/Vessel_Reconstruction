@@ -43,6 +43,16 @@ public class BatchFullProcessingService {
             {"Wood", "Ray", "Lumen", "Background"};
 
     /**
+     * Production acquisition invariant: every final production TIFF is scanned
+     * with the bark-nearest edge at the top of the image and the center/pith
+     * nearest edge at the bottom. Positive {@code segment_axis_position_um}
+     * therefore increases bark → center via {@link SegmentOrientation#TOP_TO_BOTTOM}.
+     * This is not operator-selectable for the current production dataset.
+     */
+    private static final SegmentOrientation PRODUCTION_SEGMENT_ORIENTATION =
+            SegmentOrientation.TOP_TO_BOTTOM;
+
+    /**
      * Package-visible seams so unit tests can prove classification never
      * touches All Lumina and reconstruction never loads Weka.
      */
@@ -430,7 +440,7 @@ public class BatchFullProcessingService {
                             sampleId,
                             segmentId,
                             segmentOrder,
-                            SegmentOrientation.UNSPECIFIED,
+                            PRODUCTION_SEGMENT_ORIENTATION,
                             null,
                             job.datasetRoot().toFile(),
                             TiledWekaClassificationDefaults.CALIBRATION_MODE,
@@ -480,6 +490,28 @@ public class BatchFullProcessingService {
             warnIfClassLabelsUnexpected(classificationResult);
 
             classifiedLabels = classificationResult.getTiledDirectLabels();
+
+            // 8. Re-verify the authoritative source TIFF after Weka and before
+            // committing post-Weka classification success. Uses the same
+            // job.sourceSha256() already verified before Weka.
+            final String postWekaSourceSha;
+            try {
+                postWekaSourceSha = Sha256Files.sha256OfFile(job.sourcePath());
+            } catch (final Exception ex) {
+                flags.sourceUnchanged = Boolean.FALSE;
+                flags.requiredOutputsValidated = Boolean.FALSE;
+                return fail(job, config, flags, BatchFullProcessingStatus.INVALID_SOURCE,
+                        "SOURCE_UNREADABLE", ex.getMessage(), started);
+            }
+            if (!postWekaSourceSha.equalsIgnoreCase(job.sourceSha256())) {
+                flags.sourceUnchanged = Boolean.FALSE;
+                flags.requiredOutputsValidated = Boolean.FALSE;
+                return fail(job, config, flags, BatchFullProcessingStatus.INVALID_SOURCE,
+                        "SOURCE_CHANGED", "source changed during classification", started);
+            }
+            flags.sourceUnchanged = Boolean.TRUE;
+
+            // 9. Commit post-Weka classification success only after source re-hash.
             final ClassificationDatasetWriter.Result classResult;
             try {
                 classResult = writer.finalizeClassificationStage(
@@ -491,25 +523,18 @@ public class BatchFullProcessingService {
             }
             flags.classificationCompleted = Boolean.TRUE;
 
-            // 8. Validate committed classification-only production outputs.
+            // 10. Validate committed classification-only production outputs.
             final BatchProductionOutputValidator.ValidationResult validation =
                     BatchProductionOutputValidator.validateClassificationOnly(
                             job.datasetRoot(), imageId, job.sourceSha256());
             flags.requiredOutputsValidated = Boolean.valueOf(validation.ok);
 
-            // 9. Final checksum comparison.
             final int checksumAfter = TiledWekaClassifier.checksumSource(source);
-            final boolean sourceUnchanged = checksumBefore == checksumAfter;
-            flags.sourceUnchanged = Boolean.valueOf(sourceUnchanged);
 
             final BatchFullProcessingStatus finalStatus;
             final String finalReason;
             final String finalMessage;
-            if (!sourceUnchanged) {
-                finalStatus = BatchFullProcessingStatus.INVALID_SOURCE;
-                finalReason = "SOURCE_CHANGED";
-                finalMessage = "source changed during classification";
-            } else if (!validation.ok) {
+            if (!validation.ok) {
                 finalStatus = BatchFullProcessingStatus.FAILED_OUTPUT_VALIDATION;
                 finalReason = "VALIDATION_FAILED";
                 finalMessage = joinFailures(validation.failures);

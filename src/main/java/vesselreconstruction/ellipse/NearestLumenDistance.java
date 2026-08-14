@@ -9,8 +9,11 @@ import java.util.Map;
 /**
  * Exact nearest-lumen search using a spatial grid over boundary pixel centers.
  *
- * <p>Results are exact for the defined Euclidean distance between boundary
- * pixel centers. Same-component points are excluded.</p>
+ * <p>The nearest lumen is defined as the other lumen with the minimum
+ * wall-to-wall Euclidean distance between boundary pixel centers. The
+ * reported centroid distances are measured to that same wall-nearest lumen,
+ * so every field in one {@link Result} refers to one consistent neighbor.
+ * Same-component points are excluded.</p>
  */
 public final class NearestLumenDistance {
 
@@ -98,53 +101,50 @@ public final class NearestLumenDistance {
                 totalPoints++;
             }
         }
-        final int cell = Math.max(8, (int) Math.ceil(Math.sqrt(Math.max(1, totalPoints) / 64.0)));
+
+        final int cell = Math.max(
+                8,
+                (int) Math.ceil(Math.sqrt(Math.max(1, totalPoints) / 64.0)));
+
         final Map<Long, List<int[]>> grid = new HashMap<Long, List<int[]>>();
+
         for (int i = 0; i < lumina.size(); i++) {
             for (final Point p : lumina.get(i).boundaryPixels) {
-                final long key = cellKey((p.x - minX) / cell, (p.y - minY) / cell);
+                final long key = cellKey(
+                        (p.x - minX) / cell,
+                        (p.y - minY) / cell);
+
                 List<int[]> bucket = grid.get(Long.valueOf(key));
+
                 if (bucket == null) {
                     bucket = new ArrayList<int[]>();
                     grid.put(Long.valueOf(key), bucket);
                 }
+
                 bucket.add(new int[] { p.x, p.y, i });
             }
         }
 
         for (int i = 0; i < lumina.size(); i++) {
             final LumenGeometry a = lumina.get(i);
-            String bestUid = null;
-            double bestCentroidPx = Double.POSITIVE_INFINITY;
-            double bestCentroidUm = Double.POSITIVE_INFINITY;
+
+            int bestWallLumenIndex = -1;
             double bestWallPx = Double.POSITIVE_INFINITY;
             double bestWallUm = Double.POSITIVE_INFINITY;
 
-            for (int j = 0; j < lumina.size(); j++) {
-                if (i == j) {
-                    continue;
-                }
-                final LumenGeometry b = lumina.get(j);
-                final double dCx = a.centroidX - b.centroidX;
-                final double dCy = a.centroidY - b.centroidY;
-                final double centroidPx = Math.hypot(dCx, dCy);
-                final double centroidUm = Math.hypot(dCx * pixelWidthUm, dCy * pixelHeightUm);
-                if (centroidPx < bestCentroidPx) {
-                    bestCentroidPx = centroidPx;
-                    bestCentroidUm = centroidUm;
-                    bestUid = b.lumenUid;
-                }
-            }
-
             // Exact wall distance via expanding ring search on the grid.
+            // The nearest lumen is defined by this minimum wall-to-wall distance.
             for (final Point p : a.boundaryPixels) {
                 final int cx = (p.x - minX) / cell;
                 final int cy = (p.y - minY) / cell;
+
                 int radius = 0;
                 boolean foundCloser = false;
                 double localBest = bestWallPx;
+
                 while (true) {
                     boolean anyCell = false;
+
                     for (int gy = cy - radius; gy <= cy + radius; gy++) {
                         for (int gx = cx - radius; gx <= cx + radius; gx++) {
                             if (radius > 0
@@ -152,56 +152,88 @@ public final class NearestLumenDistance {
                                     && Math.abs(gy - cy) != radius) {
                                 continue;
                             }
-                            final List<int[]> bucket = grid.get(Long.valueOf(cellKey(gx, gy)));
+
+                            final List<int[]> bucket =
+                                    grid.get(Long.valueOf(cellKey(gx, gy)));
+
                             if (bucket == null) {
                                 continue;
                             }
+
                             anyCell = true;
+
                             for (int b = 0; b < bucket.size(); b++) {
                                 final int[] q = bucket.get(b);
+
                                 if (q[2] == i) {
                                     continue;
                                 }
-                                final double dPx = Math.hypot(p.x - q[0], p.y - q[1]);
+
+                                final double dPx =
+                                        Math.hypot(p.x - q[0], p.y - q[1]);
+
                                 if (dPx < localBest) {
                                     localBest = dPx;
                                     bestWallPx = dPx;
                                     bestWallUm = Math.hypot(
                                             (p.x - q[0]) * pixelWidthUm,
                                             (p.y - q[1]) * pixelHeightUm);
-                                    bestUid = lumina.get(q[2]).lumenUid;
+                                    bestWallLumenIndex = q[2];
                                     foundCloser = true;
                                 }
                             }
                         }
                     }
+
                     // Termination: no closer point can exist beyond this cell radius.
                     final double minPossibleOutside = radius * cell;
+
                     if (foundCloser && minPossibleOutside >= bestWallPx) {
                         break;
                     }
-                    if (!anyCell && radius > 0 && minPossibleOutside >= bestWallPx) {
+
+                    if (!anyCell
+                            && radius > 0
+                            && minPossibleOutside >= bestWallPx) {
                         break;
                     }
+
                     radius++;
-                    if (radius > Math.max(maxX - minX, maxY - minY) / cell + 2) {
+
+                    if (radius
+                            > Math.max(maxX - minX, maxY - minY) / cell + 2) {
                         break;
                     }
                 }
             }
 
-            if (bestUid == null) {
+            if (bestWallLumenIndex < 0) {
                 results[i] = Result.unavailable();
-            } else {
-                results[i] = new Result(
-                        bestUid,
-                        bestCentroidPx,
-                        bestCentroidUm,
-                        bestWallPx,
-                        bestWallUm,
-                        "SEGMENT");
+                continue;
             }
+
+            // Every result field must describe the same neighbor.
+            // The neighbor is selected by minimum wall distance.
+            final LumenGeometry nearest = lumina.get(bestWallLumenIndex);
+
+            final double dCx = a.centroidX - nearest.centroidX;
+            final double dCy = a.centroidY - nearest.centroidY;
+
+            final double centroidPx = Math.hypot(dCx, dCy);
+
+            final double centroidUm = Math.hypot(
+                    dCx * pixelWidthUm,
+                    dCy * pixelHeightUm);
+
+            results[i] = new Result(
+                    nearest.lumenUid,
+                    centroidPx,
+                    centroidUm,
+                    bestWallPx,
+                    bestWallUm,
+                    "SEGMENT");
         }
+
         return results;
     }
 

@@ -50,13 +50,13 @@ class LumenCoordinateContextTest {
     }
 
     @Test
-    void bottomToTopUsesDimensionMinusOneMinusY() {
+    void bottomToTopUsesDimensionMinusY() {
         final LumenCoordinateContext context = baseContext(
                 SegmentOrientation.BOTTOM_TO_TOP, null);
         final Optional<Double> axis = context.segmentAxisPositionUm(100.0, 0.0);
         assertTrue(axis.isPresent());
         assertEquals(0, Double.compare(
-                (ORIGINAL_HEIGHT - 1) * PIXEL_SIZE,
+                ORIGINAL_HEIGHT * PIXEL_SIZE,
                 axis.get().doubleValue()));
     }
 
@@ -70,14 +70,162 @@ class LumenCoordinateContextTest {
     }
 
     @Test
-    void rightToLeftUsesDimensionMinusOneMinusX() {
+    void rightToLeftUsesDimensionMinusX() {
         final LumenCoordinateContext context = baseContext(
                 SegmentOrientation.RIGHT_TO_LEFT, null);
         final Optional<Double> axis = context.segmentAxisPositionUm(0.0, 50.0);
         assertTrue(axis.isPresent());
         assertEquals(0, Double.compare(
-                (ORIGINAL_WIDTH - 1) * PIXEL_SIZE,
+                ORIGINAL_WIDTH * PIXEL_SIZE,
                 axis.get().doubleValue()));
+    }
+
+    @Test
+    void rightToLeftPixelCenterSymmetry() {
+        final LumenCoordinateContext context = new LumenCoordinateContext(
+                "sample-a",
+                "segment-1",
+                1,
+                SegmentOrientation.RIGHT_TO_LEFT,
+                10,
+                8,
+                0,
+                0,
+                10,
+                8,
+                2.0,
+                1.0,
+                null);
+        final Optional<Double> rightmost = context.segmentAxisPositionUm(9.5, 4.0);
+        assertTrue(rightmost.isPresent());
+        assertEquals(1.0, rightmost.get().doubleValue(), 1e-12);
+
+        final Optional<Double> leftmost = context.segmentAxisPositionUm(0.5, 4.0);
+        assertTrue(leftmost.isPresent());
+        assertEquals(19.0, leftmost.get().doubleValue(), 1e-12);
+    }
+
+    @Test
+    void bottomToTopPixelCenterSymmetry() {
+        final LumenCoordinateContext context = new LumenCoordinateContext(
+                "sample-a",
+                "segment-1",
+                1,
+                SegmentOrientation.BOTTOM_TO_TOP,
+                10,
+                6,
+                0,
+                0,
+                10,
+                6,
+                1.0,
+                3.0,
+                null);
+        final Optional<Double> bottommost = context.segmentAxisPositionUm(5.0, 5.5);
+        assertTrue(bottommost.isPresent());
+        assertEquals(1.5, bottommost.get().doubleValue(), 1e-12);
+
+        final Optional<Double> topmost = context.segmentAxisPositionUm(5.0, 0.5);
+        assertTrue(topmost.isPresent());
+        assertEquals(16.5, topmost.get().doubleValue(), 1e-12);
+    }
+
+    @Test
+    void forwardAndReversePixelCenterSymmetry() {
+        final int width = 10;
+        final int height = 6;
+        final double pixelWidthUm = 2.0;
+        final double pixelHeightUm = 3.0;
+        final LumenCoordinateContext leftToRight = new LumenCoordinateContext(
+                "sample-a",
+                "segment-1",
+                1,
+                SegmentOrientation.LEFT_TO_RIGHT,
+                width,
+                height,
+                0,
+                0,
+                width,
+                height,
+                pixelWidthUm,
+                pixelHeightUm,
+                null);
+        final LumenCoordinateContext rightToLeft = new LumenCoordinateContext(
+                "sample-a",
+                "segment-1",
+                1,
+                SegmentOrientation.RIGHT_TO_LEFT,
+                width,
+                height,
+                0,
+                0,
+                width,
+                height,
+                pixelWidthUm,
+                pixelHeightUm,
+                null);
+        final Optional<Double> ltr = leftToRight.segmentAxisPositionUm(0.5, 3.0);
+        final Optional<Double> rtl = rightToLeft.segmentAxisPositionUm(width - 0.5, 3.0);
+        assertTrue(ltr.isPresent());
+        assertTrue(rtl.isPresent());
+        assertEquals(0.5 * pixelWidthUm, ltr.get().doubleValue(), 1e-12);
+        assertEquals(ltr.get().doubleValue(), rtl.get().doubleValue(), 1e-12);
+
+        final LumenCoordinateContext topToBottom = new LumenCoordinateContext(
+                "sample-a",
+                "segment-1",
+                1,
+                SegmentOrientation.TOP_TO_BOTTOM,
+                width,
+                height,
+                0,
+                0,
+                width,
+                height,
+                pixelWidthUm,
+                pixelHeightUm,
+                null);
+        final LumenCoordinateContext bottomToTop = new LumenCoordinateContext(
+                "sample-a",
+                "segment-1",
+                1,
+                SegmentOrientation.BOTTOM_TO_TOP,
+                width,
+                height,
+                0,
+                0,
+                width,
+                height,
+                pixelWidthUm,
+                pixelHeightUm,
+                null);
+        final Optional<Double> ttb = topToBottom.segmentAxisPositionUm(5.0, 0.5);
+        final Optional<Double> btt = bottomToTop.segmentAxisPositionUm(5.0, height - 0.5);
+        assertTrue(ttb.isPresent());
+        assertTrue(btt.isPresent());
+        assertEquals(0.5 * pixelHeightUm, ttb.get().doubleValue(), 1e-12);
+        assertEquals(ttb.get().doubleValue(), btt.get().doubleValue(), 1e-12);
+    }
+
+    @Test
+    void globalAxisUsesCorrectedReverseLocalPosition() {
+        final LumenCoordinateContext context = new LumenCoordinateContext(
+                "sample-a",
+                "segment-1",
+                1,
+                SegmentOrientation.RIGHT_TO_LEFT,
+                10,
+                8,
+                0,
+                0,
+                10,
+                8,
+                2.0,
+                1.0,
+                Double.valueOf(100.0));
+        final Optional<Double> global = context.globalAxisPositionUm(9.5, 4.0);
+        assertTrue(global.isPresent());
+        assertEquals(101.0, global.get().doubleValue(), 1e-12);
     }
 
     @Test

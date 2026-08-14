@@ -21,6 +21,11 @@ import java.util.Set;
  * Overlap across components is validated with one shared image-sized
  * {@link BitSet}. Scientific centroid and measurement coordinates remain
  * global crop-local values.</p>
+ *
+ * <p>{@link ComponentGeometry#centroidX} / {@link ComponentGeometry#centroidY}
+ * are the area centroid of final lumen pixel centers
+ * {@code (x + 0.5, y + 0.5)} over every pixel in the final local mask
+ * (original lumen pixels plus accepted reconstruction pixels).</p>
  */
 public final class FinalLumenGeometry {
 
@@ -37,7 +42,15 @@ public final class FinalLumenGeometry {
         public final int imageWidth;
         public final int imageHeight;
         public final int areaPx;
+        /**
+         * Area centroid X of final lumen pixel centers (global crop-local),
+         * i.e. mean of {@code x + 0.5} over every final-mask lumen pixel.
+         */
         public final double centroidX;
+        /**
+         * Area centroid Y of final lumen pixel centers (global crop-local),
+         * i.e. mean of {@code y + 0.5} over every final-mask lumen pixel.
+         */
         public final double centroidY;
         public final Rectangle bounds;
         public final boolean reconstructed;
@@ -282,10 +295,9 @@ public final class FinalLumenGeometry {
                 }
             }
 
-            // Preserve historical centroid semantics: center of the *source* bounds.
-            final Rectangle sourceBounds = item.getSourceBounds();
-            final double centroidX = sourceBounds.x + sourceBounds.width / 2.0;
-            final double centroidY = sourceBounds.y + sourceBounds.height / 2.0;
+            final double[] centroid = centroidOfFinalMask(
+                    mask, maskWidth, maskHeight, maskOriginX, maskOriginY,
+                    finalArea, item.getComponentId());
 
             retainedLocalMaskCells += maskCellsLong;
             geometries.add(new ComponentGeometry(
@@ -298,8 +310,8 @@ public final class FinalLumenGeometry {
                     width,
                     height,
                     finalArea,
-                    centroidX,
-                    centroidY,
+                    centroid[0],
+                    centroid[1],
                     new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1),
                     item.isReconstructed(),
                     changed,
@@ -364,6 +376,53 @@ public final class FinalLumenGeometry {
             }
         }
         return copy;
+    }
+
+    /**
+     * Area centroid of final lumen pixel centers from the local mask.
+     *
+     * <p>For each set mask pixel at global integer indices {@code (x, y)},
+     * the pixel center is {@code (x + 0.5, y + 0.5)}. Returns
+     * {@code [centroidX, centroidY]} in global crop-local coordinates.</p>
+     */
+    private static double[] centroidOfFinalMask(
+            final boolean[] mask,
+            final int maskWidth,
+            final int maskHeight,
+            final int maskOriginX,
+            final int maskOriginY,
+            final int expectedAreaPx,
+            final int componentId) {
+        long sumX = 0L;
+        long sumY = 0L;
+        int count = 0;
+        final int cells = maskWidth * maskHeight;
+        for (int bitIndex = 0; bitIndex < cells; bitIndex++) {
+            if (!mask[bitIndex]) {
+                continue;
+            }
+            final int localY = bitIndex / maskWidth;
+            final int localX = bitIndex % maskWidth;
+            final int globalX = maskOriginX + localX;
+            final int globalY = maskOriginY + localY;
+            sumX += globalX;
+            sumY += globalY;
+            count++;
+        }
+        if (count == 0) {
+            throw new IllegalStateException(
+                    "Final lumen mask has zero pixels for component " + componentId);
+        }
+        if (count != expectedAreaPx) {
+            throw new IllegalStateException(
+                    "Final-mask pixel count does not match areaPx for component "
+                            + componentId + ": maskPixels=" + count
+                            + " areaPx=" + expectedAreaPx);
+        }
+        return new double[] {
+                ((double) sumX / (double) count) + 0.5,
+                ((double) sumY / (double) count) + 0.5
+        };
     }
 
     private static void setLocalMask(

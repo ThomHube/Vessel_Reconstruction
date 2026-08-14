@@ -534,15 +534,24 @@ verify_all_prechecks() {
 }
 
 is_already_complete() {
+  # Image-count completion is not machine completion.
+  # completed_count == assigned_count means every assigned IMAGE is FULL_SUCCESS.
+  # status=MACHINE_SUCCESS means those images succeeded AND physical-core
+  # coordinate assembly succeeded. Assembly-only MACHINE_FAILED_UNEXPECTED
+  # must return false so a normal start rerun retries finalization.
   local progress="${JOB_ROOT}/batch/machine_supervisor/${PROP_machine_id}/machine_progress.properties"
   [[ -f "${progress}" ]] || return 1
 
-  local completed remaining image_id action assigned
+  local completed remaining image_id action assigned status percent failed blocked
   completed="$(prop_value "${progress}" "completed_count" || true)"
   remaining="$(prop_value "${progress}" "remaining_count" || true)"
   image_id="$(prop_value "${progress}" "current_image_id" || true)"
   action="$(prop_value "${progress}" "current_action" || true)"
   assigned="$(prop_value "${progress}" "assigned_count" || true)"
+  status="$(prop_value "${progress}" "status" || true)"
+  percent="$(prop_value "${progress}" "progress_percent" || true)"
+  failed="$(prop_value "${progress}" "failed_count" || true)"
+  blocked="$(prop_value "${progress}" "blocked_count" || true)"
 
   if ! is_nonneg_int "${completed}" || ! is_nonneg_int "${remaining}" || ! is_nonneg_int "${assigned}"; then
     return 1
@@ -551,6 +560,11 @@ is_already_complete() {
   [[ "${remaining}" == "0" ]] || return 1
   [[ "${assigned}" == "${ASSIGNED_COUNT}" ]] || return 1
   [[ "${completed}" == "${assigned}" ]] || return 1
+  is_positive_int "${assigned}" || return 1
+  [[ "${percent}" == "100.0" ]] || return 1
+  [[ "${failed}" == "0" ]] || return 1
+  [[ "${blocked}" == "0" ]] || return 1
+  [[ "${status}" == "MACHINE_SUCCESS" ]] || return 1
   return 0
 }
 

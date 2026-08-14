@@ -158,6 +158,11 @@ public final class LumenCoordinateContext {
     /**
      * Optional local segment-axis position in micrometres.
      * Empty when orientation is {@link SegmentOrientation#UNSPECIFIED}.
+     * <p>
+     * {@code originalX} / {@code originalY} are pixel-center coordinates
+     * (integer pixel index {@code i} has center {@code i + 0.5}). Forward
+     * orientations measure from the image origin edge; reverse orientations
+     * measure from the opposite image edge ({@code W - x} or {@code H - y}).
      */
     public Optional<Double> segmentAxisPositionUm(
             final double originalX,
@@ -167,12 +172,12 @@ public final class LumenCoordinateContext {
                 return Optional.of(Double.valueOf(originalY * pixelHeightUm));
             case BOTTOM_TO_TOP:
                 return Optional.of(Double.valueOf(
-                        ((originalHeightPx - 1) - originalY) * pixelHeightUm));
+                        (originalHeightPx - originalY) * pixelHeightUm));
             case LEFT_TO_RIGHT:
                 return Optional.of(Double.valueOf(originalX * pixelWidthUm));
             case RIGHT_TO_LEFT:
                 return Optional.of(Double.valueOf(
-                        ((originalWidthPx - 1) - originalX) * pixelWidthUm));
+                        (originalWidthPx - originalX) * pixelWidthUm));
             case UNSPECIFIED:
             default:
                 return Optional.empty();

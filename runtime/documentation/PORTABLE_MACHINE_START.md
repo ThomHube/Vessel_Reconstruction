@@ -105,9 +105,32 @@ contains the exact launcher exit code.
 
 ## Already complete
 
-If `machine_progress.properties` shows all assigned images complete
-(`completed_count == assigned_count`, `remaining_count == 0`, current image/action
-`NA`), the wrapper performs a successful no-op and does not launch again.
+`LUMEN PROCESSING ALREADY COMPLETE` means the previous machine result is
+genuine scientific success:
+
+- `status=MACHINE_SUCCESS`
+- `assigned_count > 0`
+- `completed_count == assigned_count`
+- `progress_percent=100.0`
+- `failed_count=0`
+- `blocked_count=0`
+- `remaining_count=0`
+- current image/action `NA`
+
+`completed_count == assigned_count` only means every assigned **image**
+reached `FULL_SUCCESS`. `status=MACHINE_SUCCESS` additionally means local
+physical-core coordinate assembly succeeded.
+
+A machine with `status=MACHINE_FAILED_UNEXPECTED` is **not** already
+complete, even when image counts are 100% (`progress_percent=100.0`,
+`remaining_count=0`, `failed_count=0`). A normal `start_lumen_processing.sh`
+rerun therefore launches the supervisor again. Already-`FULL_SUCCESS` images
+are skipped; machine finalization / core assembly is retried. There is no
+special assembly-retry command.
+
+`MACHINE_COMPLETED_WITH_FAILURES`, `MACHINE_COMPLETED_WITH_BLOCKED_IMAGES`,
+`MACHINE_FAILED_CONFIGURATION`, missing, empty, or unknown status values
+are also not already complete.
 
 ## Already running
 
@@ -121,7 +144,9 @@ If a previous run has ended and nothing is active, running
 `start_lumen_processing.sh` again is permitted.
 
 Resume/skip decisions remain authoritative in `BatchMachineSupervisorCli`
-(already `FULL_SUCCESS` images are skipped; unfinished/eligible images continue).
+(already `FULL_SUCCESS` images are skipped; unfinished/eligible images continue;
+assembly-only failure retries coordinate assembly without reprocessing those
+images).
 
 ## Safety
 

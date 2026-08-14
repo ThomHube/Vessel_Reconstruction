@@ -184,7 +184,7 @@ class FinalLumenGeometryTest {
     }
 
     @Test
-    void preservesAreaBoundsBorderTouchingAndCentroidSemantics() {
+    void preservesAreaBoundsBorderTouchingAndTrueFinalMaskCentroid() {
         final ByteProcessor image = source();
         final LumenComponentDescriptor component = new LumenComponentExtractor().extract(image).get(0);
         final LumenBatchItemResult item = LumenBatchItemResult.skipped(component,
@@ -196,8 +196,67 @@ class FinalLumenGeometryTest {
         assertEquals(component.getArea(), g.areaPx);
         assertEquals(component.getBounds(), g.bounds);
         assertFalse(g.touchesBorder);
-        assertEquals(component.getBounds().x + component.getBounds().width / 2.0, g.centroidX, 0.0);
-        assertEquals(component.getBounds().y + component.getBounds().height / 2.0, g.centroidY, 0.0);
+        // 2x2 square at (3,3)-(4,4): true pixel-center centroid is (4.0, 4.0).
+        assertEquals(4.0, g.centroidX, 1.0e-12);
+        assertEquals(4.0, g.centroidY, 1.0e-12);
+    }
+
+    @Test
+    void asymmetricFinalMaskUsesTrueAreaCentroidNotBoundingBoxCenter() {
+        // Final lumen pixels: (1,1), (2,1), (1,2)
+        // Bounding-box center would be (2.0, 2.0); true centroid is 11/6.
+        final ByteProcessor image = new ByteProcessor(8, 8);
+        image.set(1, 1, ClassifierLabels.LUMEN_RESULT_VALUE);
+        image.set(2, 1, ClassifierLabels.LUMEN_RESULT_VALUE);
+        image.set(1, 2, ClassifierLabels.LUMEN_RESULT_VALUE);
+        final LumenComponentDescriptor component = new LumenComponentExtractor().extract(image).get(0);
+        final LumenBatchItemResult item = LumenBatchItemResult.skipped(component,
+                LumenBatchItemResult.Status.NO_INTERVAL_SELECTED, "none", 0L);
+        final AllLumenBatchResult batch = new AllLumenBatchResult(8, 8, 1, 1,
+                Collections.singletonList(item), Collections.<Point>emptyList(), 0, 0L);
+        final FinalLumenGeometry.ComponentGeometry g =
+                FinalLumenGeometry.buildAll(image, batch, 1).get(0);
+
+        final double expected = 11.0 / 6.0;
+        assertEquals(expected, g.centroidX, 1.0e-12);
+        assertEquals(expected, g.centroidY, 1.0e-12);
+        assertEquals(2.0, component.getBounds().x + component.getBounds().width / 2.0, 0.0);
+        assertEquals(2.0, component.getBounds().y + component.getBounds().height / 2.0, 0.0);
+        assertTrue(Math.abs(g.centroidX - 2.0) > 1.0e-9);
+        assertTrue(Math.abs(g.centroidY - 2.0) > 1.0e-9);
+    }
+
+    @Test
+    void acceptedReconstructionPixelShiftsCentroidTowardAddedPixels() {
+        final ByteProcessor image = source();
+        image.set(5, 3, ClassifierLabels.WOOD_RESULT_VALUE);
+        final LumenComponentDescriptor component = new LumenComponentExtractor().extract(image).get(0);
+        final LumenBatchItemResult without = LumenBatchItemResult.skipped(component,
+                LumenBatchItemResult.Status.NO_INTERVAL_SELECTED, "none", 0L);
+        final AllLumenBatchResult batchWithout = new AllLumenBatchResult(9, 9, 1, 1,
+                Collections.singletonList(without), Collections.<Point>emptyList(), 0, 0L);
+        final FinalLumenGeometry.ComponentGeometry original =
+                FinalLumenGeometry.buildAll(image, batchWithout, 1).get(0);
+
+        final LumenBatchItemResult with = LumenBatchItemResult.withStatus(
+                LumenBatchItemResult.skipped(component,
+                        LumenBatchItemResult.Status.NO_INTERVAL_SELECTED, "none", 0L),
+                LumenBatchItemResult.Status.RECONSTRUCTED_SINGLE_ARTIFACT,
+                "accepted", Collections.singletonList(new Point(5, 3)));
+        final AllLumenBatchResult batchWith = new AllLumenBatchResult(9, 9, 1, 1,
+                Collections.singletonList(with), Collections.singletonList(new Point(5, 3)), 0, 0L);
+        final FinalLumenGeometry.ComponentGeometry reconstructed =
+                FinalLumenGeometry.buildAll(image, batchWith, 1).get(0);
+
+        // Original 2x2 at (3,3)-(4,4) → centroid (4.0, 4.0).
+        // Adding (5,3) → (19/5 + 0.5, 17/5 + 0.5) = (4.3, 3.9).
+        assertEquals(4.0, original.centroidX, 1.0e-12);
+        assertEquals(4.0, original.centroidY, 1.0e-12);
+        assertEquals(4.3, reconstructed.centroidX, 1.0e-12);
+        assertEquals(3.9, reconstructed.centroidY, 1.0e-12);
+        assertTrue(reconstructed.centroidX > original.centroidX);
+        assertTrue(reconstructed.centroidY < original.centroidY);
+        assertEquals(original.areaPx + 1, reconstructed.areaPx);
     }
 
     @Test

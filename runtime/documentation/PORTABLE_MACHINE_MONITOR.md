@@ -41,6 +41,7 @@ does **not** launch, stop, or restart processing.
 LUMEN MACHINE STATUS
 machine: machine_01
 state: RUNNING
+persisted status: MACHINE_SUCCESS
 overall: 3 / 10 complete (30.0%)
 successful this run: 2
 already complete/skipped: 1
@@ -66,11 +67,25 @@ processing process detected: YES
 | `NO_IMPORTED_JOB` | No `work/<machine-id>/job` yet |
 | `NOT_STARTED` | Job imported, but no `machine_progress.properties` |
 | `RUNNING` | Progress shows a current image/action |
-| `COMPLETE` | All assigned images complete (`completed == assigned`, `remaining == 0`, current image/action `NA`) |
+| `COMPLETE` | `status=MACHINE_SUCCESS` **and** all assigned images complete (`completed == assigned`, `remaining == 0`, current image/action `NA`) |
 | `IDLE_OR_INTERRUPTED` | Progress exists but no clear current image and not complete |
 
-Completion is **not** inferred from `status=MACHINE_SUCCESS` alone, because the
-supervisor may write interim status values while an image is in flight.
+`COMPLETE` requires `status=MACHINE_SUCCESS` plus the existing completion
+fields. 100% image completion alone is insufficient.
+
+`completed_count == assigned_count` and `progress_percent == 100.0` mean every
+assigned **image** is `FULL_SUCCESS`. They do **not** mean the machine finished
+scientifically. An assembly/finalization failure remains a machine failure
+(`status=MACHINE_FAILED_UNEXPECTED`) even with those counts, and is **not**
+shown as `COMPLETE`.
+
+Completion is also **not** inferred from `status=MACHINE_SUCCESS` alone,
+because the supervisor may write interim status values while an image is in
+flight. Missing or unknown status is never treated as `COMPLETE`.
+
+The snapshot prints `persisted status` so operator-visible Java status
+(`MACHINE_SUCCESS`, `MACHINE_FAILED_UNEXPECTED`, image-failure, blocked)
+is distinct from the monitor `state` line.
 
 ## Overall progress
 

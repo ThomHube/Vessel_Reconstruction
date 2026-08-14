@@ -23,7 +23,10 @@ import java.util.regex.Pattern;
  * subprocess at a time for ready/resume images, replans after each attempt,
  * and persists machine progress from canonical FULL_SUCCESS state.
  *
- * <p>Does not run precheck, does not compute ETA, and never loads ImageJ.</p>
+ * <p>After every assigned image is {@code FULL_SUCCESS}, the supervisor runs
+ * {@link PhysicalCoreCoordinateAssembler} on the local machine dataset before
+ * {@code MACHINE_SUCCESS} becomes authoritative. Does not run precheck, does
+ * not compute ETA, and never loads ImageJ.</p>
  */
 public final class BatchMachineSupervisor {
 
@@ -223,23 +226,26 @@ public final class BatchMachineSupervisor {
             println(request.terminal, "action: " + imagePlan.plannedAction().name());
             println(request.terminal, "progress before: " + formatPercent(progressBefore));
 
-            writeProgress(
-                    supervisorDir,
-                    request.machineId,
-                    interimStatus(blockedCount, failedCount, livePlan),
-                    assigned,
-                    livePlan.completedCount(),
-                    progressBefore,
-                    imagePlan.sequenceNumber(),
-                    imagePlan.imageId(),
-                    imagePlan.plannedAction().name(),
-                    attemptedCount,
-                    succeededThisRunCount,
-                    skippedCompleteCount,
-                    blockedCount,
-                    failedCount,
-                    assigned - livePlan.completedCount(),
-                    System.currentTimeMillis() - startEpochMs);
+            if (shouldWriteInterimProgress(
+                    assigned, blockedCount, failedCount, livePlan.completedCount())) {
+                writeProgress(
+                        supervisorDir,
+                        request.machineId,
+                        interimStatus(blockedCount, failedCount, livePlan),
+                        assigned,
+                        livePlan.completedCount(),
+                        progressBefore,
+                        imagePlan.sequenceNumber(),
+                        imagePlan.imageId(),
+                        imagePlan.plannedAction().name(),
+                        attemptedCount,
+                        succeededThisRunCount,
+                        skippedCompleteCount,
+                        blockedCount,
+                        failedCount,
+                        assigned - livePlan.completedCount(),
+                        System.currentTimeMillis() - startEpochMs);
+            }
 
             final long imageStart = System.currentTimeMillis();
             final BatchMachineImageExecutionResult imageResult;
@@ -345,23 +351,26 @@ public final class BatchMachineSupervisor {
             }
             println(request.terminal, "");
 
-            writeProgress(
-                    supervisorDir,
-                    request.machineId,
-                    interimStatus(blockedCount, failedCount, afterPlan),
-                    assigned,
-                    afterPlan.completedCount(),
-                    progressAfter,
-                    imagePlan.sequenceNumber(),
-                    imagePlan.imageId(),
-                    imagePlan.plannedAction().name(),
-                    attemptedCount,
-                    succeededThisRunCount,
-                    skippedCompleteCount,
-                    blockedCount,
-                    failedCount,
-                    assigned - afterPlan.completedCount(),
-                    System.currentTimeMillis() - startEpochMs);
+            if (shouldWriteInterimProgress(
+                    assigned, blockedCount, failedCount, afterPlan.completedCount())) {
+                writeProgress(
+                        supervisorDir,
+                        request.machineId,
+                        interimStatus(blockedCount, failedCount, afterPlan),
+                        assigned,
+                        afterPlan.completedCount(),
+                        progressAfter,
+                        imagePlan.sequenceNumber(),
+                        imagePlan.imageId(),
+                        imagePlan.plannedAction().name(),
+                        attemptedCount,
+                        succeededThisRunCount,
+                        skippedCompleteCount,
+                        blockedCount,
+                        failedCount,
+                        assigned - afterPlan.completedCount(),
+                        System.currentTimeMillis() - startEpochMs);
+            }
 
             writeSummaryCsv(supervisorDir, supervisorRunId, request.machineId, imageResults);
         }
@@ -377,11 +386,29 @@ public final class BatchMachineSupervisor {
                     blockedCount, failedCount, ex);
         }
 
-        final long endEpochMs = System.currentTimeMillis();
         final int finalCompleted = finalPlan.completedCount();
         final double finalProgress = BatchMachineSupervisorResult.progressPercent(
                 finalCompleted, assigned);
         final int remaining = assigned - finalCompleted;
+
+        if (shouldAssemblePhysicalCoreCoordinates(
+                assigned, blockedCount, failedCount, finalCompleted)) {
+            final Path datasetRoot = request.batchRoot
+                    .resolve(BatchManifestSchema.datasetShardRelativePath(request.machineId))
+                    .toAbsolutePath().normalize();
+            try {
+                assemblePhysicalCoreCoordinates(datasetRoot);
+            } catch (final IOException ex) {
+                return finishAssemblyFailure(
+                        request, supervisorDir, supervisorRunId, startEpochMs,
+                        assigned, initialCompleted, initialProgress, finalCompleted,
+                        finalProgress, remaining, imageResults,
+                        skippedCompleteCount, attemptedCount, succeededThisRunCount,
+                        blockedCount, failedCount, datasetRoot, ex);
+            }
+        }
+
+        final long endEpochMs = System.currentTimeMillis();
         final BatchMachineSupervisorStatus status = resolveStatus(
                 assigned, finalCompleted, blockedCount, failedCount);
 
@@ -490,6 +517,111 @@ public final class BatchMachineSupervisor {
                 .status(BatchMachineSupervisorStatus.MACHINE_FAILED_UNEXPECTED)
                 .imageResults(imageResults)
                 .build();
+    }
+
+    private static BatchMachineSupervisorResult finishAssemblyFailure(
+            final Request request,
+            final Path supervisorDir,
+            final String supervisorRunId,
+            final long startEpochMs,
+            final int assigned,
+            final int initialCompleted,
+            final double initialProgress,
+            final int finalCompleted,
+            final double finalProgress,
+            final int remaining,
+            final List<BatchMachineImageExecutionResult> imageResults,
+            final int skippedCompleteCount,
+            final int attemptedCount,
+            final int succeededThisRunCount,
+            final int blockedCount,
+            final int failedCount,
+            final Path datasetRoot,
+            final IOException ex) {
+        final long endEpochMs = System.currentTimeMillis();
+        final String assemblerMessage = ex.getMessage() == null
+                ? ex.getClass().getSimpleName()
+                : ex.getMessage();
+        System.err.println("Physical-core coordinate assembly failed for machine "
+                + request.machineId + ":");
+        System.err.println(datasetRoot);
+        System.err.println(assemblerMessage);
+        println(request.terminal, "ERROR: Physical-core coordinate assembly failed for machine "
+                + request.machineId + ":");
+        println(request.terminal, assemblerMessage);
+        writeProgress(
+                supervisorDir,
+                request.machineId,
+                BatchMachineSupervisorStatus.MACHINE_FAILED_UNEXPECTED,
+                assigned,
+                finalCompleted,
+                finalProgress,
+                0,
+                "NA",
+                "NA",
+                attemptedCount,
+                succeededThisRunCount,
+                skippedCompleteCount,
+                blockedCount,
+                failedCount,
+                remaining,
+                endEpochMs - startEpochMs);
+        writeSummaryCsv(supervisorDir, supervisorRunId, request.machineId, imageResults);
+        return BatchMachineSupervisorResult.builder()
+                .machineId(request.machineId)
+                .timing(startEpochMs, endEpochMs)
+                .assignedCount(assigned)
+                .initialCompletedCount(initialCompleted)
+                .finalCompletedCount(finalCompleted)
+                .skippedCompleteCount(skippedCompleteCount)
+                .attemptedCount(attemptedCount)
+                .succeededThisRunCount(succeededThisRunCount)
+                .blockedCount(blockedCount)
+                .failedCount(failedCount)
+                .remainingCount(remaining)
+                .initialProgressPercent(initialProgress)
+                .finalProgressPercent(finalProgress)
+                .status(BatchMachineSupervisorStatus.MACHINE_FAILED_UNEXPECTED)
+                .imageResults(imageResults)
+                .build();
+    }
+
+    /**
+     * Suppress in-loop progress writes that would already be export-eligible
+     * before physical-core coordinate assembly has succeeded.
+     */
+    private static boolean shouldWriteInterimProgress(
+            final int assigned,
+            final int blockedCount,
+            final int failedCount,
+            final int completedCount) {
+        return !isPreAssemblyCompletionCandidate(
+                assigned, blockedCount, failedCount, completedCount);
+    }
+
+    private static boolean shouldAssemblePhysicalCoreCoordinates(
+            final int assigned,
+            final int blockedCount,
+            final int failedCount,
+            final int completedCount) {
+        return isPreAssemblyCompletionCandidate(
+                assigned, blockedCount, failedCount, completedCount);
+    }
+
+    private static boolean isPreAssemblyCompletionCandidate(
+            final int assigned,
+            final int blockedCount,
+            final int failedCount,
+            final int completedCount) {
+        return assigned > 0
+                && failedCount == 0
+                && blockedCount == 0
+                && completedCount == assigned;
+    }
+
+    private static void assemblePhysicalCoreCoordinates(final Path datasetRoot)
+            throws IOException {
+        new PhysicalCoreCoordinateAssembler().assemble(datasetRoot);
     }
 
     private static void validateConfiguration(final Request request) throws ConfigurationException {

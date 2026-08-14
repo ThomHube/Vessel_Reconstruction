@@ -12,8 +12,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -33,15 +35,15 @@ class BatchMachineSupervisorTest {
 
     @Test
     void executesInStrictCoreSegmentAscendingOrder() throws Exception {
-        final Fixture fixture = buildFixture(Arrays.asList("0201A2", "0102A1", "0101A1"));
+        final Fixture fixture = buildFixture(Arrays.asList("0201A1", "0102A1", "0101A1"));
         writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
         writePrecheck(fixture, "0102A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
-        writePrecheck(fixture, "0201A2", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        writePrecheck(fixture, "0201A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
 
         final RecordingLauncher launcher = RecordingLauncher.successSeeding(fixture);
         final BatchMachineSupervisorResult result = runSupervisor(fixture, launcher);
 
-        assertEquals(Arrays.asList("0101A1", "0102A1", "0201A2"), launcher.launchedImageIds());
+        assertEquals(Arrays.asList("0101A1", "0102A1", "0201A1"), launcher.launchedImageIds());
         assertEquals(BatchMachineSupervisorStatus.MACHINE_SUCCESS, result.status());
         assertEquals(3, result.succeededThisRunCount());
         assertEquals(100.0d, result.finalProgressPercent(), 0.001d);
@@ -318,6 +320,290 @@ class BatchMachineSupervisorTest {
                 result.status());
     }
 
+    @Test
+    void assemblesCoordinatesBeforeMachineSuccess() throws Exception {
+        final Fixture fixture = buildFixture(Collections.singletonList("0101A1"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+
+        final RecordingLauncher launcher = RecordingLauncher.successSeeding(fixture);
+        final BatchMachineSupervisorResult result = runSupervisor(fixture, launcher);
+
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_SUCCESS, result.status());
+        assertEquals(0.0d, Double.parseDouble(segmentCell(fixture, "0101A1",
+                "global_segment_start_um")), 0.0d);
+        assertEquals(DEFAULT_AXIS_UM,
+                Double.parseDouble(lumenCell(fixture, lumenUidFor("0101A1"),
+                        "global_longitudinal_um")),
+                0.0d);
+        assertEquals(DEFAULT_AXIS_UM,
+                Double.parseDouble(lumenCell(fixture, lumenUidFor("0101A1"),
+                        "segment_axis_position_um")),
+                0.0d);
+        assertExportEligibleMachineSuccess(fixture, 1);
+    }
+
+    @Test
+    void assemblesCumulativeCoordinatesForMultiSegmentCore() throws Exception {
+        final Fixture fixture = buildFixture(Arrays.asList("0101A1", "0101A2"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        writePrecheck(fixture, "0101A2", BatchPrecheckStatus.PRECHECK_SUCCESS);
+
+        final RecordingLauncher launcher = new RecordingLauncher();
+        launcher.handler = new LaunchHandler() {
+            @Override
+            public int handle(final BatchMachineImageProcessLauncher.Request request)
+                    throws Exception {
+                touchControllerLog(request);
+                if ("0101A1".equals(request.imageId())) {
+                    seedCompleteForImage(
+                            fixture.datasetRoot, "0101A1",
+                            Files.readAllBytes(fixture.inputRoot.resolve("0101A1.tif")),
+                            100, 2.0d, 10.0d, true);
+                } else {
+                    seedCompleteForImage(
+                            fixture.datasetRoot, "0101A2",
+                            Files.readAllBytes(fixture.inputRoot.resolve("0101A2.tif")),
+                            80, 2.0d, 30.0d, true);
+                }
+                writeAttemptResult(request, BatchFullProcessingStatus.FULL_SUCCESS, 1);
+                return 0;
+            }
+        };
+
+        final BatchMachineSupervisorResult result = runSupervisor(fixture, launcher);
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_SUCCESS, result.status());
+        assertEquals(0.0d, Double.parseDouble(segmentCell(fixture, "0101A1",
+                "global_segment_start_um")), 0.0d);
+        assertEquals(200.0d, Double.parseDouble(segmentCell(fixture, "0101A2",
+                "global_segment_start_um")), 0.0d);
+        assertEquals(230.0d, Double.parseDouble(lumenCell(fixture, lumenUidFor("0101A2"),
+                "global_longitudinal_um")), 0.0d);
+        assertExportEligibleMachineSuccess(fixture, 2);
+    }
+
+    @Test
+    void assemblesSingleSegmentCore() throws Exception {
+        final Fixture fixture = buildFixture(Collections.singletonList("0101A1"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        seedImageComplete(fixture, "0101A1");
+
+        final BatchMachineSupervisorResult result =
+                runSupervisor(fixture, RecordingLauncher.noop());
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_SUCCESS, result.status());
+        assertEquals(0.0d, Double.parseDouble(segmentCell(fixture, "0101A1",
+                "global_segment_start_um")), 0.0d);
+        assertEquals(DEFAULT_AXIS_UM,
+                Double.parseDouble(lumenCell(fixture, lumenUidFor("0101A1"),
+                        "global_longitudinal_um")),
+                0.0d);
+    }
+
+    @Test
+    void assemblesMultiplePhysicalCoresInOneMachineCall() throws Exception {
+        final Fixture fixture = buildFixture(Arrays.asList("0101A1", "0102A1"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        writePrecheck(fixture, "0102A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        seedImageComplete(fixture, "0101A1");
+        seedImageComplete(fixture, "0102A1");
+
+        final RecordingLauncher launcher = RecordingLauncher.noop();
+        final BatchMachineSupervisorResult result = runSupervisor(fixture, launcher);
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_SUCCESS, result.status());
+        assertTrue(launcher.launches.isEmpty());
+        assertEquals(0.0d, Double.parseDouble(segmentCell(fixture, "0101A1",
+                "global_segment_start_um")), 0.0d);
+        assertEquals(0.0d, Double.parseDouble(segmentCell(fixture, "0102A1",
+                "global_segment_start_um")), 0.0d);
+        assertEquals(DEFAULT_AXIS_UM,
+                Double.parseDouble(lumenCell(fixture, lumenUidFor("0101A1"),
+                        "global_longitudinal_um")),
+                0.0d);
+        assertEquals(DEFAULT_AXIS_UM,
+                Double.parseDouble(lumenCell(fixture, lumenUidFor("0102A1"),
+                        "global_longitudinal_um")),
+                0.0d);
+    }
+
+    @Test
+    void imageProcessingFailureSkipsCoordinateAssembly() throws Exception {
+        final Fixture fixture = buildFixture(Arrays.asList("0101A1", "0101A2"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        writePrecheck(fixture, "0101A2", BatchPrecheckStatus.PRECHECK_SUCCESS);
+
+        final RecordingLauncher launcher = new RecordingLauncher();
+        launcher.handler = new LaunchHandler() {
+            @Override
+            public int handle(final BatchMachineImageProcessLauncher.Request request)
+                    throws Exception {
+                touchControllerLog(request);
+                if ("0101A1".equals(request.imageId())) {
+                    writeAttemptResult(request, BatchFullProcessingStatus.FAILED_CLASSIFICATION,
+                            1);
+                    return 22;
+                }
+                seedImageComplete(fixture, request.imageId());
+                writeAttemptResult(request, BatchFullProcessingStatus.FULL_SUCCESS, 1);
+                return 0;
+            }
+        };
+
+        final BatchMachineSupervisorResult result = runSupervisor(fixture, launcher);
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_COMPLETED_WITH_FAILURES,
+                result.status());
+        assertEquals(1, result.failedCount());
+        assertEquals(RCsvSupport.NA, segmentCell(fixture, "0101A2",
+                "global_segment_start_um"));
+        assertEquals(RCsvSupport.NA, lumenCell(fixture, lumenUidFor("0101A2"),
+                "global_longitudinal_um"));
+        assertFalse(isExportEligibleMachineSuccess(readProgress(fixture)));
+    }
+
+    @Test
+    void blockedImageSkipsCoordinateAssembly() throws Exception {
+        final Fixture fixture = buildFixture(Arrays.asList("0101A1", "0101A2"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        seedImageComplete(fixture, "0101A1");
+        writePrecheck(fixture, "0101A2", BatchPrecheckStatus.REVIEW_REQUIRED_MASK);
+
+        final RecordingLauncher launcher = RecordingLauncher.noop();
+        final BatchMachineSupervisorResult result = runSupervisor(fixture, launcher);
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_COMPLETED_WITH_BLOCKED_IMAGES,
+                result.status());
+        assertEquals(1, result.blockedCount());
+        assertTrue(launcher.launches.isEmpty());
+        assertEquals(RCsvSupport.NA, segmentCell(fixture, "0101A1",
+                "global_segment_start_um"));
+        assertEquals(RCsvSupport.NA, lumenCell(fixture, lumenUidFor("0101A1"),
+                "global_longitudinal_um"));
+    }
+
+    @Test
+    void assemblyFailureBlocksMachineSuccessProgress() throws Exception {
+        final Fixture fixture = buildFixture(Collections.singletonList("0101A1"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        seedImageCompleteAssemblerInvalid(fixture, "0101A1");
+
+        final BatchMachineSupervisorResult result =
+                runSupervisor(fixture, RecordingLauncher.noop());
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_FAILED_UNEXPECTED, result.status());
+        final Map<String, String> progress = readProgress(fixture);
+        assertEquals("MACHINE_FAILED_UNEXPECTED", progress.get("status"));
+        assertEquals("1", progress.get("assigned_count"));
+        assertEquals("1", progress.get("completed_count"));
+        assertEquals("100.0", progress.get("progress_percent"));
+        assertEquals("0", progress.get("failed_count"));
+        assertEquals("0", progress.get("blocked_count"));
+        assertEquals("0", progress.get("remaining_count"));
+        assertEquals("NA", progress.get("current_image_id"));
+        assertEquals("NA", progress.get("current_action"));
+        assertFalse(isExportEligibleMachineSuccess(progress));
+        assertEquals(RCsvSupport.NA, segmentCell(fixture, "0101A1",
+                "global_segment_start_um"));
+    }
+
+    @Test
+    void assemblyFailureReturnsUnexpectedSupervisorResult() throws Exception {
+        final Fixture fixture = buildFixture(Collections.singletonList("0101A1"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        seedImageCompleteAssemblerInvalid(fixture, "0101A1");
+
+        final BatchMachineSupervisorResult result =
+                runSupervisor(fixture, RecordingLauncher.noop());
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_FAILED_UNEXPECTED, result.status());
+        assertEquals(1, result.finalCompletedCount());
+        assertEquals(0, result.failedCount());
+        assertEquals(0, result.blockedCount());
+        assertEquals(0, result.remainingCount());
+        assertEquals(100.0d, result.finalProgressPercent(), 0.0d);
+    }
+
+    @Test
+    void retryAfterAssemblyFailureSkipsProcessingAndAssembles() throws Exception {
+        final Fixture fixture = buildFixture(Collections.singletonList("0101A1"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        seedImageCompleteAssemblerInvalid(fixture, "0101A1");
+
+        final RecordingLauncher firstLauncher = RecordingLauncher.noop();
+        final BatchMachineSupervisorResult first = runSupervisor(fixture, firstLauncher);
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_FAILED_UNEXPECTED, first.status());
+        assertTrue(firstLauncher.launches.isEmpty());
+        assertEquals(1, first.skippedCompleteCount());
+
+        repairAssemblerSourceHeight(fixture, "0101A1", DEFAULT_SOURCE_HEIGHT_PX);
+
+        final RecordingLauncher secondLauncher = RecordingLauncher.noop();
+        final BatchMachineSupervisorResult second = runSupervisor(fixture, secondLauncher);
+        assertTrue(secondLauncher.launches.isEmpty());
+        assertEquals(0, second.attemptedCount());
+        assertEquals(1, second.skippedCompleteCount());
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_SUCCESS, second.status());
+        assertEquals(0.0d, Double.parseDouble(segmentCell(fixture, "0101A1",
+                "global_segment_start_um")), 0.0d);
+        assertExportEligibleMachineSuccess(fixture, 1);
+    }
+
+    @Test
+    void allSkipResumeDoesNotPublishPreAssemblyMachineSuccess() throws Exception {
+        final Fixture fixture = buildFixture(Collections.singletonList("0101A1"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        seedImageCompleteAssemblerInvalid(fixture, "0101A1");
+
+        final BatchMachineSupervisorResult result =
+                runSupervisor(fixture, RecordingLauncher.noop());
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_FAILED_UNEXPECTED, result.status());
+        assertEquals(1, result.skippedCompleteCount());
+        assertEquals(0, result.attemptedCount());
+        final Map<String, String> progress = readProgress(fixture);
+        assertFalse(isExportEligibleMachineSuccess(progress));
+        assertEquals("MACHINE_FAILED_UNEXPECTED", progress.get("status"));
+        assertEquals("NA", progress.get("current_image_id"));
+        assertEquals("NA", progress.get("current_action"));
+    }
+
+    @Test
+    void successfulAllSkipFinalizationDoesNotRelaunchProcessing() throws Exception {
+        final Fixture fixture = buildFixture(Arrays.asList("0101A1", "0102A1"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        writePrecheck(fixture, "0102A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        seedImageComplete(fixture, "0101A1");
+        seedImageComplete(fixture, "0102A1");
+
+        final RecordingLauncher launcher = RecordingLauncher.noop();
+        final BatchMachineSupervisorResult result = runSupervisor(fixture, launcher);
+        assertEquals(0, result.attemptedCount());
+        assertEquals(2, result.skippedCompleteCount());
+        assertTrue(launcher.launches.isEmpty());
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_SUCCESS, result.status());
+        assertEquals(0.0d, Double.parseDouble(segmentCell(fixture, "0101A1",
+                "global_segment_start_um")), 0.0d);
+        assertEquals(0.0d, Double.parseDouble(segmentCell(fixture, "0102A1",
+                "global_segment_start_um")), 0.0d);
+        assertExportEligibleMachineSuccess(fixture, 2);
+    }
+
+    @Test
+    void assemblesLocalCanonicalDatasetWithoutAdataPath() throws Exception {
+        final Fixture fixture = buildFixture(Collections.singletonList("0101A1"));
+        writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        seedImageComplete(fixture, "0101A1");
+
+        final Path expectedRoot = fixture.batchRoot
+                .resolve(BatchManifestSchema.datasetShardRelativePath(MACHINE_ID))
+                .toAbsolutePath().normalize();
+        assertEquals(expectedRoot, fixture.datasetRoot.toAbsolutePath().normalize());
+        assertTrue(expectedRoot.startsWith(fixture.batchRoot.toAbsolutePath().normalize()));
+        assertFalse(expectedRoot.toString().contains("ADATA"));
+        assertFalse(expectedRoot.toString().contains("/media/"));
+
+        final BatchMachineSupervisorResult result =
+                runSupervisor(fixture, RecordingLauncher.noop());
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_SUCCESS, result.status());
+        assertTrue(Files.isRegularFile(expectedRoot.resolve(
+                "data/manifests/segment_manifest.csv")));
+        assertEquals(0.0d, Double.parseDouble(segmentCell(fixture, "0101A1",
+                "global_segment_start_um")), 0.0d);
+    }
+
     private BatchMachineSupervisorResult runSupervisor(
             final Fixture fixture,
             final BatchMachineImageProcessLauncher launcher) throws Exception {
@@ -449,12 +735,32 @@ class BatchMachineSupervisorTest {
         Files.write(path, "not=valid\nproperties\n".getBytes(StandardCharsets.UTF_8));
     }
 
+    private static final int DEFAULT_SOURCE_HEIGHT_PX = 100;
+    private static final double DEFAULT_PIXEL_HEIGHT_UM = 1.5d;
+    private static final double DEFAULT_AXIS_UM = 10.0d;
+
     private static void seedImageComplete(final Fixture fixture, final String imageId)
             throws Exception {
         seedCompleteForImage(
                 fixture.datasetRoot,
                 imageId,
-                Files.readAllBytes(fixture.inputRoot.resolve(imageId + ".tif")));
+                Files.readAllBytes(fixture.inputRoot.resolve(imageId + ".tif")),
+                DEFAULT_SOURCE_HEIGHT_PX,
+                DEFAULT_PIXEL_HEIGHT_UM,
+                DEFAULT_AXIS_UM,
+                true);
+    }
+
+    private static void seedImageCompleteAssemblerInvalid(
+            final Fixture fixture, final String imageId) throws Exception {
+        seedCompleteForImage(
+                fixture.datasetRoot,
+                imageId,
+                Files.readAllBytes(fixture.inputRoot.resolve(imageId + ".tif")),
+                DEFAULT_SOURCE_HEIGHT_PX,
+                DEFAULT_PIXEL_HEIGHT_UM,
+                DEFAULT_AXIS_UM,
+                false);
     }
 
     /**
@@ -466,12 +772,27 @@ class BatchMachineSupervisorTest {
             final Path datasetRoot,
             final String imageId,
             final byte[] sourceBytes) throws Exception {
+        seedCompleteForImage(
+                datasetRoot, imageId, sourceBytes,
+                DEFAULT_SOURCE_HEIGHT_PX, DEFAULT_PIXEL_HEIGHT_UM, DEFAULT_AXIS_UM, true);
+    }
+
+    static void seedCompleteForImage(
+            final Path datasetRoot,
+            final String imageId,
+            final byte[] sourceBytes,
+            final int sourceHeightPx,
+            final double pixelHeightUm,
+            final double axisUm,
+            final boolean assemblerValid) throws Exception {
         final ProductionDatasetLayout layout = new ProductionDatasetLayout(datasetRoot);
         layout.ensureDirectoriesExist();
 
         final CoreSegmentId parsedId = CoreSegmentId.parse(imageId);
         final String sampleId = FilenameSanitizer.sanitizeForFilename(parsedId.sampleId());
         final String segmentId = FilenameSanitizer.sanitizeForFilename(parsedId.segmentId());
+        final String orientation = SegmentOrientation.TOP_TO_BOTTOM.name();
+        final String pixelHeightText = RCsvSupport.formatNumber(pixelHeightUm);
 
         final Path originalRgb = layout.imagesOriginalRgb().resolve(
                 FilenameSanitizer.originalRgbFilename(sampleId, segmentId));
@@ -493,10 +814,16 @@ class BatchMachineSupervisorTest {
                 "reconstructed".getBytes(StandardCharsets.UTF_8));
 
         final List<String> imageRow = blankRow(ProductionSchemas.IMAGE_MANIFEST_HEADER);
+        imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("schema_version"),
+                Integer.toString(ProductionSchemas.DATA_SCHEMA_VERSION));
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("sample_id"),
                 parsedId.sampleId());
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("segment_id"),
                 parsedId.segmentId());
+        imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("segment_order"),
+                Integer.toString(parsedId.segmentOrder()));
+        imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("segment_orientation"),
+                orientation);
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("source_rgb_sha256"), sha);
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("masked_classified_filename"),
                 FilenameSanitizer.maskedClassifiedFilename(sampleId, segmentId));
@@ -506,8 +833,13 @@ class BatchMachineSupervisorTest {
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("crop_y_px"), "0");
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("crop_width_px"), "100");
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("crop_height_px"), "80");
-        imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("pixel_width_um"), "1.5");
-        imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("pixel_height_um"), "1.5");
+        imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("pixel_width_um"), pixelHeightText);
+        imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("pixel_height_um"), pixelHeightText);
+        if (assemblerValid) {
+            imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("source_height_px"),
+                    Integer.toString(sourceHeightPx));
+            imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("source_width_px"), "20");
+        }
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("reconstructed_classified_filename"),
                 FilenameSanitizer.reconstructedClassifiedFilename(sampleId, segmentId));
         imageRow.set(ProductionSchemas.IMAGE_MANIFEST_HEADER.indexOf("classification_run_id"),
@@ -519,10 +851,20 @@ class BatchMachineSupervisorTest {
                 "sample_id", "segment_id");
 
         final List<String> segmentRow = blankRow(ProductionSchemas.SEGMENT_MANIFEST_HEADER);
+        segmentRow.set(ProductionSchemas.SEGMENT_MANIFEST_HEADER.indexOf("schema_version"),
+                Integer.toString(ProductionSchemas.DATA_SCHEMA_VERSION));
         segmentRow.set(ProductionSchemas.SEGMENT_MANIFEST_HEADER.indexOf("sample_id"),
                 parsedId.sampleId());
         segmentRow.set(ProductionSchemas.SEGMENT_MANIFEST_HEADER.indexOf("segment_id"),
                 parsedId.segmentId());
+        segmentRow.set(ProductionSchemas.SEGMENT_MANIFEST_HEADER.indexOf("segment_order"),
+                Integer.toString(parsedId.segmentOrder()));
+        segmentRow.set(ProductionSchemas.SEGMENT_MANIFEST_HEADER.indexOf("segment_orientation"),
+                orientation);
+        segmentRow.set(ProductionSchemas.SEGMENT_MANIFEST_HEADER.indexOf("continuation_confirmed"),
+                RCsvSupport.FALSE);
+        segmentRow.set(ProductionSchemas.SEGMENT_MANIFEST_HEADER.indexOf("global_segment_start_um"),
+                RCsvSupport.NA);
         ProductionCsvStore.upsertByKeys(
                 layout.segmentManifest(), ProductionSchemas.SEGMENT_MANIFEST_HEADER, segmentRow,
                 "sample_id", "segment_id");
@@ -573,21 +915,37 @@ class BatchMachineSupervisorTest {
                 "sample_id", "segment_id", "stage");
 
         final List<String> lumen = blankRow(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER);
-        lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("lumen_uid"), "L000001");
+        lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("schema_version"),
+                Integer.toString(ProductionSchemas.DATA_SCHEMA_VERSION));
+        lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("lumen_uid"),
+                lumenUidFor(imageId));
         lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("sample_id"),
                 parsedId.sampleId());
         lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("segment_id"),
                 parsedId.segmentId());
+        lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("segment_order"),
+                Integer.toString(parsedId.segmentOrder()));
+        lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("segment_orientation"),
+                orientation);
+        lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("original_height_px"),
+                assemblerValid ? Integer.toString(sourceHeightPx) : RCsvSupport.NA);
+        lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("pixel_height_um"),
+                pixelHeightText);
+        lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("segment_axis_position_um"),
+                RCsvSupport.formatNumber(axisUm));
+        lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("global_longitudinal_um"),
+                RCsvSupport.NA);
         lumen.set(ProductionSchemas.LUMEN_MEASUREMENTS_HEADER.indexOf("area_um2"), "12.5");
         ProductionCsvStore.writeTableAtomically(
                 layout.dataLumenMeasurementsPerSegment().resolve(
                         FilenameSanitizer.lumenMeasurementsFilename(sampleId, segmentId)),
                 ProductionSchemas.LUMEN_MEASUREMENTS_HEADER,
                 Collections.singletonList(lumen));
-        ProductionCsvStore.appendRow(
+        ProductionCsvStore.upsertByKeys(
                 layout.dataLumenMeasurementsAll(),
                 ProductionSchemas.LUMEN_MEASUREMENTS_HEADER,
-                lumen);
+                lumen,
+                "lumen_uid");
 
         final List<String> diagnostics = blankRow(ProductionSchemas.ARTIFACT_DIAGNOSTICS_HEADER);
         diagnostics.set(ProductionSchemas.ARTIFACT_DIAGNOSTICS_HEADER.indexOf("sample_id"),
@@ -615,6 +973,97 @@ class BatchMachineSupervisorTest {
             row.add(RCsvSupport.NA);
         }
         return row;
+    }
+
+    private static String lumenUidFor(final String imageId) {
+        return "L" + imageId;
+    }
+
+    private static Map<String, String> readProgress(final Fixture fixture) throws IOException {
+        final Path progress = fixture.supervisorDir.resolve(BatchMachineSupervisor.PROGRESS_FILE);
+        final Map<String, String> map = new LinkedHashMap<String, String>();
+        for (final String line : Files.readAllLines(progress, StandardCharsets.UTF_8)) {
+            if (line.isEmpty()) {
+                continue;
+            }
+            final int eq = line.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            map.put(line.substring(0, eq), line.substring(eq + 1));
+        }
+        return map;
+    }
+
+    private static boolean isExportEligibleMachineSuccess(final Map<String, String> progress) {
+        return "MACHINE_SUCCESS".equals(progress.get("status"))
+                && progress.get("assigned_count") != null
+                && progress.get("assigned_count").equals(progress.get("completed_count"))
+                && "100.0".equals(progress.get("progress_percent"))
+                && "0".equals(progress.get("failed_count"))
+                && "0".equals(progress.get("blocked_count"))
+                && "0".equals(progress.get("remaining_count"));
+    }
+
+    private static void assertExportEligibleMachineSuccess(
+            final Fixture fixture, final int assigned) throws IOException {
+        final Map<String, String> progress = readProgress(fixture);
+        assertTrue(isExportEligibleMachineSuccess(progress), progress.toString());
+        assertEquals(Integer.toString(assigned), progress.get("assigned_count"));
+        assertEquals("NA", progress.get("current_image_id"));
+        assertEquals("NA", progress.get("current_action"));
+    }
+
+    private static String segmentCell(
+            final Fixture fixture, final String segmentId, final String column)
+            throws IOException {
+        final List<List<String>> table = ProductionCsvStore.readTable(
+                fixture.datasetRoot.resolve("data/manifests/segment_manifest.csv"));
+        final Map<String, Integer> idx = ProductionCsvStore.headerIndex(table.get(0));
+        final int idIndex = idx.get("segment_id").intValue();
+        final int colIndex = idx.get(column).intValue();
+        for (int r = 1; r < table.size(); r++) {
+            if (segmentId.equals(table.get(r).get(idIndex))) {
+                return table.get(r).get(colIndex);
+            }
+        }
+        throw new AssertionError("missing segment_id " + segmentId);
+    }
+
+    private static String lumenCell(
+            final Fixture fixture, final String lumenUid, final String column)
+            throws IOException {
+        final List<List<String>> table = ProductionCsvStore.readTable(
+                fixture.datasetRoot.resolve("data/lumen_measurements/lumen_measurements_all.csv"));
+        final Map<String, Integer> idx = ProductionCsvStore.headerIndex(table.get(0));
+        final int uidIndex = idx.get("lumen_uid").intValue();
+        final int colIndex = idx.get(column).intValue();
+        for (int r = 1; r < table.size(); r++) {
+            if (lumenUid.equals(table.get(r).get(uidIndex))) {
+                return table.get(r).get(colIndex);
+            }
+        }
+        throw new AssertionError("missing lumen_uid " + lumenUid);
+    }
+
+    private static void repairAssemblerSourceHeight(
+            final Fixture fixture, final String imageId, final int sourceHeightPx)
+            throws IOException {
+        final Path path = fixture.datasetRoot.resolve("data/manifests/image_manifest.csv");
+        final List<List<String>> table = ProductionCsvStore.readTable(path);
+        final Map<String, Integer> idx = ProductionCsvStore.headerIndex(table.get(0));
+        final int segmentIndex = idx.get("segment_id").intValue();
+        final int heightIndex = idx.get("source_height_px").intValue();
+        final List<List<String>> body = new ArrayList<List<String>>();
+        for (int r = 1; r < table.size(); r++) {
+            final List<String> row = new ArrayList<String>(table.get(r));
+            if (imageId.equals(row.get(segmentIndex))) {
+                row.set(heightIndex, Integer.toString(sourceHeightPx));
+            }
+            body.add(row);
+        }
+        ProductionCsvStore.writeTableAtomically(
+                path, ProductionSchemas.IMAGE_MANIFEST_HEADER, body);
     }
 
     private static void touchControllerLog(final BatchMachineImageProcessLauncher.Request request)

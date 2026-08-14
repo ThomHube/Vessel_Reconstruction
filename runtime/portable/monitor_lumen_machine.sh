@@ -408,12 +408,19 @@ EOF
 
 compute_state() {
   # Uses progress fields; prints state to stdout.
+  # completed==assigned means every assigned IMAGE is FULL_SUCCESS.
+  # COMPLETE additionally requires status=MACHINE_SUCCESS, which means
+  # physical-core coordinate assembly also succeeded. Count-complete
+  # MACHINE_FAILED_UNEXPECTED / failure / blocked / missing status must
+  # not be reported as COMPLETE.
   local completed="$1"
   local assigned="$2"
   local remaining="$3"
   local image_id="$4"
   local action="$5"
-  if [[ "${completed}" == "${assigned}" \
+  local status="$6"
+  if [[ "${status}" == "MACHINE_SUCCESS" \
+      && "${completed}" == "${assigned}" \
       && "${remaining}" == "0" \
       && "${image_id}" == "NA" \
       && "${action}" == "NA" ]]; then
@@ -485,7 +492,7 @@ EOF
   fi
 
   local state
-  state="$(compute_state "${completed}" "${assigned}" "${remaining}" "${image_id}" "${action}")"
+  state="$(compute_state "${completed}" "${assigned}" "${remaining}" "${image_id}" "${action}" "${status}")"
 
   local live_elapsed_ms
   if [[ "${state}" == "COMPLETE" ]]; then
@@ -506,6 +513,7 @@ EOF
   echo "LUMEN MACHINE STATUS"
   echo "machine: ${PROP_machine_id}"
   echo "state: ${state}"
+  echo "persisted status: ${status:-unknown}"
   echo "overall: ${completed} / ${assigned} complete (${percent}%)"
   echo "successful this run: ${succeeded}"
   echo "already complete/skipped: ${skipped}"
