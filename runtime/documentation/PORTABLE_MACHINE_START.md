@@ -41,7 +41,8 @@ Before any detached start:
    `installation.properties` must match the installed files;
 2. the machine package must already be imported under `work/<machine-id>/job`;
 3. `classification.tile_profiles` index `2` must be exactly `1024x1024`;
-4. every assigned image in
+4. `machines.count` must be `1` (one analysis host; all assigned TIFFs);
+5. every assigned image in
    `job/batch/machines/<machine-id>_manifest.csv` must already have:
 
 ```text
@@ -63,7 +64,9 @@ The wrapper does **not** run precheck automatically.
 ## What happens after a successful start
 
 The detached runner executes the validated launcher, which runs
-`BatchMachineSupervisorCli`. Images are processed **sequentially**:
+`BatchMachineSupervisorCli`. Images are processed **sequentially** on the
+single analysis host. Internal concurrency is `classification.threads_per_tile`
+(Weka threads within a tile); tile geometry stays 1024x1024.
 
 1. classification (tiled Weka) first;
 2. reconstruction / artifact reduction afterward;

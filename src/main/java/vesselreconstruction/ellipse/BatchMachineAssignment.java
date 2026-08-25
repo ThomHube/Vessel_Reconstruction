@@ -20,6 +20,12 @@ import java.util.Locale;
  *
  * <p>Core integrity takes priority over equal image counts. Assignments may therefore
  * be slightly uneven when groups contain 1–5 images.</p>
+ *
+ * <p>Production portable execution uses {@code machineCount = 1}: every TIFF of the
+ * run is assigned to {@code machine_01}, which is the identity of the single
+ * analysis host. {@code machineCount > 1} remains available to tests of this
+ * library and must not be used to partition one production dataset across
+ * physical computers.</p>
  */
 public final class BatchMachineAssignment {
 

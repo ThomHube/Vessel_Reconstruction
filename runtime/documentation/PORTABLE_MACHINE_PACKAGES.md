@@ -1,7 +1,8 @@
 # Portable Machine Packages (Phase 4C4B1)
 
-Create machine-specific distribution packages from an **already validated**
+Create **one** analysis-host package from an **already validated**
 central job produced by `prepare_master_batch.sh` (PPTTCS / manifest schema 2).
+The package contains every production TIFF (`machines.count=1`).
 
 ## Usage
 
@@ -21,13 +22,11 @@ Creates:
 ```text
 <job-root>/machine_packages/
   machine_01/
-    input/          # assigned TIFFs (relative paths preserved)
+    input/          # all production TIFFs (relative paths preserved)
     batch/machines/machine_01_manifest.csv
     production_batch.properties
     package.properties
     package_checksums.sha256
-  machine_02/
-    ...
 ```
 
 If `machine_packages/` already exists, the script fails and leaves it unchanged.
@@ -37,8 +36,13 @@ Also writes:
 ```text
 <job-root>/launchers/
   lumen_machine_start.sh
-  START_machine_XX_<coreId>.sh
+  START_machine_01_<coreId>.sh
+  START_single_machine.sh
 ```
+
+`START_single_machine.sh` is the canonical one-host launcher (same payload as
+`START_machine_01_<coreId>.sh`). `machine_id=machine_01` remains the identity of
+the analysis host.
 
 Each generated `START_*.sh` encodes only machine ID, core ID, and
 `../machine_packages/<machine-id>`. Shared one-click logic lives in
@@ -46,13 +50,12 @@ Each generated `START_*.sh` encodes only machine ID, core ID, and
 `PORTABLE_MACHINE_AUTOPILOT.md`).
 
 
-Every configured machine must receive at least one physical core (non-empty
-manifest). Empty machine slices fail clearly so operators can reduce
-`machines.count`.
+The single analysis-host package contains every production TIFF (non-empty
+manifest). `machine_count` other than 1 is rejected.
 
-## What each package contains
+## What the package contains
 
-- only the TIFFs assigned to that machine (core groups are never split)
+- every production TIFF assigned to the analysis host (`machine_01`)
 - the authoritative schema-2 machine manifest (byte-for-byte)
 - the authoritative `production_batch.properties` (exact file copy)
 - `package.properties` provenance with `package.schema_version=2` and
@@ -77,5 +80,5 @@ never modified.
 
 ## Next step
 
-Import one package into an installed laboratory machine and run portable
-verification / processing orchestration.
+Import the `machine_01` package onto the analysis host and run portable
+verification / processing orchestration (`START_single_machine.sh`).

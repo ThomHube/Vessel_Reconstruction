@@ -426,7 +426,8 @@ public class BatchFullProcessingService {
                     new TiledWekaClassificationConfiguration(
                             job.tileProfile().widthPx(),
                             job.tileProfile().heightPx(),
-                            config.threadsPerTile(),
+                            HardwareExecutionProfile.classificationThreadsPerTile(
+                                    config, HardwareExecutionProfile.resolveFromEnvironment()),
                             config.runUntiledReferenceComparison(),
                             config.seamAuditHalfWidthPx(),
                             config.maskDownsampleFactor(),

@@ -70,7 +70,25 @@ class BatchFullProcessingCliTest {
         assertTrue(command.contains("--main-class"));
         assertTrue(command.contains("vesselreconstruction.ellipse.BatchFullProcessingImagePlugin"));
         assertTrue(command.contains("--headless"));
+        assertEquals("--headless", command.get(1));
         assertEquals(jobPath.toString(), command.get(command.size() - 1));
+    }
+
+    @Test
+    void buildFijiCommandInsertsValidatedProfileHeap() {
+        final Path launcher = tempDir.resolve("ImageJ-linux64");
+        final Path jobPath = tempDir.resolve("job.properties");
+        final HardwareExecutionProfile profile = new HardwareExecutionProfile(16, 3433);
+        final List<String> command = BatchFullProcessingCli.buildFijiCommand(
+                launcher, jobPath, profile);
+        assertEquals(launcher.toAbsolutePath().normalize().toString(), command.get(0));
+        assertEquals("--heap=3433m", command.get(1));
+        assertTrue(command.contains("--headless"));
+        assertTrue(command.contains("vesselreconstruction.ellipse.BatchFullProcessingImagePlugin"));
+        final List<String> withoutProfile = BatchFullProcessingCli.buildFijiCommand(launcher, jobPath);
+        assertEquals(withoutProfile.size() + 1, command.size());
+        assertEquals(withoutProfile.subList(1, withoutProfile.size()),
+                command.subList(2, command.size()));
     }
 
     @Test

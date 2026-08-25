@@ -382,6 +382,57 @@ class BatchMachineSupervisorTest {
     }
 
     @Test
+    void laterSegmentCompletedFirstStillAssemblesBarkOriginCoordinates() throws Exception {
+        final Fixture fixture = buildFixture(Arrays.asList("0105A1", "0105A2", "0105A3"));
+        writePrecheck(fixture, "0105A1", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        writePrecheck(fixture, "0105A2", BatchPrecheckStatus.PRECHECK_SUCCESS);
+        writePrecheck(fixture, "0105A3", BatchPrecheckStatus.PRECHECK_SUCCESS);
+
+        seedCompleteForImage(
+                fixture.datasetRoot, "0105A2",
+                Files.readAllBytes(fixture.inputRoot.resolve("0105A2.tif")),
+                80, 2.0d, 30.0d, true);
+        seedCompleteForImage(
+                fixture.datasetRoot, "0105A3",
+                Files.readAllBytes(fixture.inputRoot.resolve("0105A3.tif")),
+                40, 2.0d, 5.0d, true);
+
+        final RecordingLauncher launcher = new RecordingLauncher();
+        launcher.handler = new LaunchHandler() {
+            @Override
+            public int handle(final BatchMachineImageProcessLauncher.Request request)
+                    throws Exception {
+                touchControllerLog(request);
+                assertEquals("0105A1", request.imageId());
+                seedCompleteForImage(
+                        fixture.datasetRoot, "0105A1",
+                        Files.readAllBytes(fixture.inputRoot.resolve("0105A1.tif")),
+                        100, 2.0d, 10.0d, true);
+                writeAttemptResult(request, BatchFullProcessingStatus.FULL_SUCCESS, 1);
+                return 0;
+            }
+        };
+
+        final BatchMachineSupervisorResult result = runSupervisor(fixture, launcher);
+        assertEquals(BatchMachineSupervisorStatus.MACHINE_SUCCESS, result.status());
+        assertEquals(Collections.singletonList("0105A1"), launcher.launchedImageIds());
+        assertEquals(1, launcher.maxConcurrent.get());
+        assertEquals(0.0d, Double.parseDouble(segmentCell(fixture, "0105A1",
+                "global_segment_start_um")), 0.0d);
+        assertEquals(200.0d, Double.parseDouble(segmentCell(fixture, "0105A2",
+                "global_segment_start_um")), 0.0d);
+        assertEquals(360.0d, Double.parseDouble(segmentCell(fixture, "0105A3",
+                "global_segment_start_um")), 0.0d);
+        assertEquals(10.0d, Double.parseDouble(lumenCell(fixture, lumenUidFor("0105A1"),
+                "global_longitudinal_um")), 0.0d);
+        assertEquals(230.0d, Double.parseDouble(lumenCell(fixture, lumenUidFor("0105A2"),
+                "global_longitudinal_um")), 0.0d);
+        assertEquals(365.0d, Double.parseDouble(lumenCell(fixture, lumenUidFor("0105A3"),
+                "global_longitudinal_um")), 0.0d);
+        assertExportEligibleMachineSuccess(fixture, 3);
+    }
+
+    @Test
     void assemblesSingleSegmentCore() throws Exception {
         final Fixture fixture = buildFixture(Collections.singletonList("0101A1"));
         writePrecheck(fixture, "0101A1", BatchPrecheckStatus.PRECHECK_SUCCESS);

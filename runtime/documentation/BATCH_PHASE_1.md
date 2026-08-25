@@ -1,6 +1,6 @@
 # Batch Phase 1 — Manifest Planning Only
 
-This phase **plans** unattended multi-computer work. It does **not**:
+This phase **plans** unattended work on **one analysis host**. It does **not**:
 
 - open Fiji
 - run Weka
@@ -57,10 +57,13 @@ expected set of 80 images and **no** replicate field.
 
 ## Machine assignment
 
-All segments sharing the same `core_id` are assigned to the same machine.
-Ordered core groups are assigned to the currently least-loaded machine by image
-count (ties → lower machine index). Core integrity takes priority over equal
-image counts.
+Production portable execution sets `machines.count=1`. Every TIFF is assigned to
+`machine_01`, the identity of the single analysis host. `assigned_machine` and
+`assignment_index` remain in the manifest schema for compatibility.
+
+The assignment library still accepts `machineCount >= 1` so existing tests of
+core-preserving grouping remain valid. Production scripts reject counts other
+than 1 and do not partition one dataset across physical computers.
 
 ## Complete-set flag
 

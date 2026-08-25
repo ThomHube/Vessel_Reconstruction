@@ -196,9 +196,11 @@ usage() {
   cat >&2 <<'EOF'
 Usage: ./create_machine_packages.sh <job-root>
 
-Creates <job-root>/machine_packages/ from an authoritative central job.
+Creates <job-root>/machine_packages/ from an authoritative central job
+prepared for one analysis host (machine_count=1).
 Does not modify source TIFFs or launch processing.
 Requires portable_plan_schema_version=2 and manifest_schema_version=2.
+Writes launchers/START_single_machine.sh in addition to START_machine_01_<core>.sh.
 EOF
 }
 
@@ -350,6 +352,10 @@ load_and_validate_preparation() {
     fail "${EXIT_VERIFY}" "machine_count must be integer 1..99, found ${count_raw}"
   fi
   MACHINE_COUNT="${count_raw}"
+  if [[ "${MACHINE_COUNT}" -ne 1 ]]; then
+    fail "${EXIT_VERIFY}" \
+      "Single-machine production requires machine_count=1 (one analysis host). Found ${MACHINE_COUNT}. Re-run prepare_master_batch.sh without a multi-machine count."
+  fi
 
   [[ "${production_config_sha}" == "${CANONICAL_CONFIG_SHA}" ]] \
     || fail "${EXIT_VERIFY}" \
@@ -447,7 +453,7 @@ package_one_machine() {
 
   if [[ "${data_rows}" -lt 1 ]]; then
     fail "${EXIT_VERIFY}" \
-      "${mid}_manifest.csv has zero data rows; portable deployment requires every configured machine to receive at least one physical core. Reduce machines.count."
+      "${mid}_manifest.csv has zero data rows; the single analysis host must receive every production TIFF."
   fi
 
   local i src_abs dest_abs actual_sha actual_size dest_parent
@@ -640,12 +646,21 @@ write_one_click_launchers() {
       "${core_id}" \
       "../machine_packages/${mid}"
   done
+
+  local single_src="${launchers_dir}/START_$(machine_id_for_index 1)_${MACHINE_CORE_1}.sh"
+  local single_dest="${launchers_dir}/START_single_machine.sh"
+  require_file "${single_src}" "machine_01 one-click launcher"
+  cp -f -- "${single_src}" "${single_dest}"
+  chmod 755 -- "${single_dest}"
+  if ! bash -n -- "${single_dest}"; then
+    fail "${EXIT_VERIFY}" "Generated START_single_machine.sh failed bash -n"
+  fi
 }
 
 print_success() {
   local i mid count_var first_var last_var core_var
   echo "LUMEN MACHINE PACKAGE CREATION SUCCESS"
-  echo "machines: ${MACHINE_COUNT}"
+  echo "analysis host: $(machine_id_for_index 1)"
   echo "TIFFs packaged: ${PREP_VALID_COUNT}"
   echo
   for ((i = 1; i <= MACHINE_COUNT; i++)); do
@@ -659,6 +674,7 @@ print_success() {
   echo
   echo "machine packages: ${JOB_ROOT}/machine_packages"
   echo "one-click launchers: ${JOB_ROOT}/launchers"
+  echo "single-machine launcher: ${JOB_ROOT}/launchers/START_single_machine.sh"
   echo "source TIFFs modified: NO"
   echo "precheck launched: NO"
   echo "processing launched: NO"

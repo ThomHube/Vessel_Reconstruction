@@ -393,6 +393,7 @@ print_no_imported_job() {
   cat <<EOF
 LUMEN MACHINE STATUS
 machine: ${PROP_machine_id}
+execution: one analysis host
 state: NO_IMPORTED_JOB
 EOF
 }
@@ -401,6 +402,7 @@ print_not_started() {
   cat <<EOF
 LUMEN MACHINE STATUS
 machine: ${PROP_machine_id}
+execution: one analysis host
 state: NOT_STARTED
 current stage: NOT_STARTED
 EOF
@@ -476,6 +478,7 @@ print_status_snapshot() {
     cat <<EOF
 LUMEN MACHINE STATUS
 machine: ${PROP_machine_id}
+execution: one analysis host
 state: IDLE_OR_INTERRUPTED
 note: progress file present but some numeric fields are missing/malformed; reporting conservatively
 persisted status: ${status:-unknown}
@@ -512,6 +515,7 @@ EOF
 
   echo "LUMEN MACHINE STATUS"
   echo "machine: ${PROP_machine_id}"
+  echo "execution: one analysis host"
   echo "state: ${state}"
   echo "persisted status: ${status:-unknown}"
   echo "overall: ${completed} / ${assigned} complete (${percent}%)"

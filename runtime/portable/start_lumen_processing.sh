@@ -39,6 +39,11 @@ PROP_launcher_sha256=''
 PROP_monitor_path=''
 PROP_monitor_sha256=''
 
+PRODUCTION_THREADS_PER_TILE=''
+HARDWARE_PROFILE_PATH=''
+HARDWARE_PROFILE_HEAP_MB=''
+HARDWARE_PROFILE_APPLIED=0
+
 JOB_ROOT=''
 CONTROL_ROOT=''
 ASSIGNED_COUNT=0
@@ -369,6 +374,101 @@ verify_production_tile_profile() {
   fi
 }
 
+verify_single_machine_production() {
+  local config_path="${JOB_ROOT}/production_batch.properties"
+  local machines_count
+  machines_count="$(require_prop "${config_path}" "machines.count")"
+  if [[ "${machines_count}" != "1" ]]; then
+    fail "${EXIT_VALIDATION}" \
+      "Single-machine production requires machines.count=1, found ${machines_count}"
+  fi
+  PRODUCTION_THREADS_PER_TILE="$(require_prop "${config_path}" "classification.threads_per_tile")"
+  if ! is_positive_int "${PRODUCTION_THREADS_PER_TILE}"; then
+    fail "${EXIT_VALIDATION}" \
+      "classification.threads_per_tile must be a positive integer, found ${PRODUCTION_THREADS_PER_TILE}"
+  fi
+}
+
+# Apply a benchmark-generated profile for this run only. The imported
+# job production_batch.properties is never rewritten (SHA-locked). A
+# run-local copy under control/full_processing/ receives threads_per_tile.
+# Fiji heap is passed through LUMEN_HARDWARE_PROFILE into Java.
+apply_optional_hardware_profile() {
+  local profile="${LUMEN_HARDWARE_PROFILE:-}"
+  HARDWARE_PROFILE_PATH=''
+  HARDWARE_PROFILE_HEAP_MB=''
+  HARDWARE_PROFILE_APPLIED=0
+  if [[ -z "${profile}" ]]; then
+    echo "hardware profile not set; using job production_batch.properties as-is"
+    return 0
+  fi
+  if [[ ! -f "${profile}" ]]; then
+    fail "${EXIT_VALIDATION}" "LUMEN_HARDWARE_PROFILE file does not exist: ${profile}"
+  fi
+  local status threads heap tile_w tile_h
+  status="$(require_prop "${profile}" "benchmark_status")"
+  if [[ "${status}" != "REAL_CLASSIFICATION_VALIDATED" ]]; then
+    fail "${EXIT_VALIDATION}" \
+      "LUMEN_HARDWARE_PROFILE is not REAL_CLASSIFICATION_VALIDATED (found ${status})"
+  fi
+  threads="$(require_prop "${profile}" "classification.threads_per_tile")"
+  heap="$(require_prop "${profile}" "fiji.heap_mb")"
+  tile_w="$(require_prop "${profile}" "tile_width")"
+  tile_h="$(require_prop "${profile}" "tile_height")"
+  if ! is_positive_int "${threads}"; then
+    fail "${EXIT_VALIDATION}" \
+      "LUMEN_HARDWARE_PROFILE classification.threads_per_tile is invalid: ${threads}"
+  fi
+  if ! is_positive_int "${heap}"; then
+    fail "${EXIT_VALIDATION}" \
+      "LUMEN_HARDWARE_PROFILE fiji.heap_mb is invalid: ${heap}"
+  fi
+  if [[ "${tile_w}" != "1024" || "${tile_h}" != "1024" ]]; then
+    fail "${EXIT_VALIDATION}" \
+      "LUMEN_HARDWARE_PROFILE tile geometry must remain 1024x1024, found ${tile_w}x${tile_h}"
+  fi
+  HARDWARE_PROFILE_PATH="${profile}"
+  HARDWARE_PROFILE_HEAP_MB="${heap}"
+  HARDWARE_PROFILE_APPLIED=1
+  PRODUCTION_THREADS_PER_TILE="${threads}"
+  echo "hardware profile applied for this run: ${profile}"
+  echo "classification.threads_per_tile=${threads}"
+  echo "fiji.heap_mb=${heap}"
+  echo "tile geometry unchanged: ${PRODUCTION_TILE_PROFILE}"
+}
+
+copy_config_with_threads() {
+  local src="$1"
+  local dest="$2"
+  local threads="$3"
+  local tmp="${dest}.tmp.$$"
+  local replaced=0
+  local line
+  : >"${tmp}"
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    if [[ "${line}" == classification.threads_per_tile=* ]]; then
+      printf '%s\n' "classification.threads_per_tile=${threads}" >>"${tmp}"
+      replaced=1
+    else
+      printf '%s\n' "${line}" >>"${tmp}"
+    fi
+  done <"${src}"
+  if [[ "${replaced}" -ne 1 ]]; then
+    rm -f -- "${tmp}"
+    fail "${EXIT_VALIDATION}" \
+      "job production_batch.properties missing classification.threads_per_tile"
+  fi
+  local src_profiles dest_profiles
+  src_profiles="$(require_prop "${src}" "classification.tile_profiles")"
+  dest_profiles="$(require_prop "${tmp}" "classification.tile_profiles")"
+  if [[ "${src_profiles}" != "${dest_profiles}" ]]; then
+    rm -f -- "${tmp}"
+    fail "${EXIT_VALIDATION}" "refusing to change classification.tile_profiles"
+  fi
+  mv -f -- "${tmp}" "${dest}"
+}
+
 # Split a simple CSV line (no embedded commas in fields of interest).
 split_csv_simple() {
   local line="$1"
@@ -648,6 +748,9 @@ print_ready_message() {
   cat <<EOF
 LUMEN PROCESSING READY
 machine: ${PROP_machine_id}
+execution: one analysis host
+internal concurrency: classification.threads_per_tile=${PRODUCTION_THREADS_PER_TILE}
+hardware profile applied: ${HARDWARE_PROFILE_APPLIED}
 assigned images: ${ASSIGNED_COUNT}
 precheck: ${ASSIGNED_COUNT} / ${ASSIGNED_COUNT} PRECHECK_SUCCESS
 tile profile index: ${PRODUCTION_TILE_PROFILE_INDEX}
@@ -663,12 +766,16 @@ write_runner_script() {
   local exitcode_path="$3"
   local launcher_path="$4"
   local home_value="$5"
+  local profile_export=''
+  if [[ -n "${LUMEN_HARDWARE_PROFILE:-}" ]]; then
+    profile_export="export LUMEN_HARDWARE_PROFILE=$(printf '%q' "${LUMEN_HARDWARE_PROFILE}")"$'\n'
+  fi
 
   cat >"${runner_path}" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 export HOME=$(printf '%q' "${home_value}")
-cd /tmp 2>/dev/null || cd /
+${profile_export}cd /tmp 2>/dev/null || cd /
 set +e
 $(printf '%q' "${launcher_path}") --full-only 2 >$(printf '%q' "${log_path}") 2>&1
 rc=\$?
@@ -689,6 +796,14 @@ start_detached() {
   local log_path="${CONTROL_ROOT}/runner.log"
   local exitcode_path="${CONTROL_ROOT}/runner.exitcode"
   local start_props="${CONTROL_ROOT}/start.properties"
+  local applied_config="${CONTROL_ROOT}/production_batch.applied.properties"
+
+  if [[ "${HARDWARE_PROFILE_APPLIED}" == "1" ]]; then
+    copy_config_with_threads \
+      "${JOB_ROOT}/production_batch.properties" \
+      "${applied_config}" \
+      "${PRODUCTION_THREADS_PER_TILE}"
+  fi
 
   # Clear previous completion marker; log is truncated by the runner redirect.
   rm -f -- "${exitcode_path}" "${pid_file}"
@@ -719,6 +834,10 @@ runner_pid=${runner_pid}
 runner_log=${log_path}
 runner_exitcode=${exitcode_path}
 start_timestamp_epoch_ms=${ts}
+hardware_profile_applied=${HARDWARE_PROFILE_APPLIED}
+hardware_profile_path=${HARDWARE_PROFILE_PATH}
+classification.threads_per_tile=${PRODUCTION_THREADS_PER_TILE}
+fiji.heap_mb=${HARDWARE_PROFILE_HEAP_MB}
 EOF
 
   sleep 2
@@ -804,6 +923,8 @@ main() {
   verify_imported_job_present
   verify_job_metadata
   verify_production_tile_profile
+  verify_single_machine_production
+  apply_optional_hardware_profile
   load_machine_manifest "${JOB_ROOT}/batch/machines/${PROP_machine_id}_manifest.csv"
   verify_all_prechecks
 

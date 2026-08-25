@@ -7,3 +7,4 @@ target/
 .DS_Store
 
 .m2/
+hardware_benchmark/

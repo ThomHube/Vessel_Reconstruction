@@ -165,6 +165,46 @@ class BatchManifestPlannerTest {
     }
 
     @Test
+    void singleMachineReceivesEveryDiscoveredTiffInCanonicalOrder() throws Exception {
+        final Path input = tempDir.resolve("input-single");
+        final Path batch = tempDir.resolve("batch-single");
+        Files.createDirectories(input);
+        writeTiff(input.resolve("0102A1.tif"), "c");
+        writeTiff(input.resolve("0105A3.tif"), "f");
+        writeTiff(input.resolve("0105A1.tif"), "d");
+        writeTiff(input.resolve("0101A1.tif"), "a");
+        writeTiff(input.resolve("0101A2.tif"), "b");
+        writeTiff(input.resolve("0105A2.tif"), "e");
+        final Path config = writeSubsetConfig(HardwareExecutionProfile.PRODUCTION_MACHINE_COUNT);
+
+        final BatchManifestPlanner.PlanResult result = BatchManifestPlanner.plan(
+                new BatchManifestPlanner.PlanRequest(input, batch, config));
+        assertEquals(1, result.machineCount);
+        assertEquals(6, result.validTiffCount);
+        assertEquals("0101A1", result.firstImageId);
+        assertEquals("0105A3", result.lastImageId);
+
+        final List<List<String>> master = ProductionCsvStore.readTable(result.masterManifest);
+        assertEquals(7, master.size());
+        final String[] expected = {"0101A1", "0101A2", "0102A1", "0105A1", "0105A2", "0105A3"};
+        for (int i = 0; i < expected.length; i++) {
+            final List<String> row = master.get(i + 1);
+            assertEquals(expected[i], row.get(2));
+            assertEquals(Integer.toString(i + 1), row.get(1));
+            assertEquals(HardwareExecutionProfile.PRODUCTION_MACHINE_ID, row.get(12));
+            assertEquals(Integer.toString(i + 1), row.get(13));
+        }
+
+        final List<List<String>> machine = ProductionCsvStore.readTable(
+                batch.resolve("machines/machine_01_manifest.csv"));
+        assertEquals(master.size(), machine.size());
+        for (int i = 1; i < master.size(); i++) {
+            assertEquals(master.get(i).get(2), machine.get(i).get(2));
+            assertEquals(HardwareExecutionProfile.PRODUCTION_MACHINE_ID, machine.get(i).get(12));
+        }
+    }
+
+    @Test
     void globalOrderPreservedAcrossMachines() throws Exception {
         final Path input = tempDir.resolve("input6");
         final Path batch = tempDir.resolve("batch6");

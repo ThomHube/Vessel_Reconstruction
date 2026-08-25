@@ -1,13 +1,17 @@
 # Portable One-Click Machine Autopilot (Issue 7H)
 
-Operator workflow on a fresh Linux machine:
+Operator workflow on the analysis host:
 
-1. Plug in the Lumen ADATA drive.
-2. Run **one** machine-specific launcher, for example:
+1. Prepare the production job (`prepare_master_batch.sh` with `machines.count=1`).
+2. Create the single-host package (`create_machine_packages.sh`).
+3. Run **one** launcher:
 
 ```bash
-/path/to/LumenProductionJobs/<job>/launchers/START_machine_03_0105A.sh
+/path/to/LumenProductionJobs/<job>/launchers/START_single_machine.sh
 ```
+
+`START_machine_01_<coreId>.sh` is equivalent. `machine_id=machine_01` is the
+identity of this analysis host, not a subset of the dataset.
 
 3. No further terminal commands are required.
 
@@ -29,13 +33,11 @@ location**. It does not hard-code a username or a mount such as
     lumen_machine_autopilot.sh
     lumen_machine_start.sh
   LumenProductionJobs/<job>/
-    machine_packages/machine_XX/
+    machine_packages/machine_01/
     launchers/
       lumen_machine_start.sh          # shared bootstrap
-      START_machine_01_0102A.sh
-      START_machine_02_0103B.sh
-      START_machine_03_0105A.sh
-      START_machine_04_0105B.sh
+      START_machine_01_<coreId>.sh
+      START_single_machine.sh
     completed_results/                # created at export time
 ```
 

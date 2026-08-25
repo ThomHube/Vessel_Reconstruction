@@ -80,6 +80,27 @@ class PhysicalCoreCoordinateAssemblerTest {
     }
 
     @Test
+    void completionOrManifestRowOrderDoesNotChangeCumulativeStarts(@TempDir final Path root)
+            throws Exception {
+        final Fixture fixture = Fixture.create(root, Arrays.asList(
+                segment(SEG3, 7, 1.0),
+                segment(SEG2, 25, 1.0),
+                segment(SEG1, 10, 1.0)),
+                Arrays.asList(
+                        lumen(SEG2, "L2", 2.0, "b"),
+                        lumen(SEG3, "L3", 3.0, "c"),
+                        lumen(SEG1, "L1", 1.0, "a")));
+        ASSEMBLER.assemble(fixture.root);
+
+        assertEquals(RCsvSupport.formatNumber(0.0), startUm(fixture, SEG1));
+        assertEquals(RCsvSupport.formatNumber(10.0), startUm(fixture, SEG2));
+        assertEquals(RCsvSupport.formatNumber(35.0), startUm(fixture, SEG3));
+        assertEquals(RCsvSupport.formatNumber(1.0), globalUm(fixture.aggregate(), "L1"));
+        assertEquals(RCsvSupport.formatNumber(12.0), globalUm(fixture.aggregate(), "L2"));
+        assertEquals(RCsvSupport.formatNumber(38.0), globalUm(fixture.aggregate(), "L3"));
+    }
+
+    @Test
     void nonuniformPixelCalibrationUsesPerSegmentScale(@TempDir final Path root) throws Exception {
         final Fixture fixture = Fixture.create(root, Arrays.asList(
                 segment(SEG1, 10, 2.0),

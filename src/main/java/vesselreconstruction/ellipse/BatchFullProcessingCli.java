@@ -164,6 +164,14 @@ public final class BatchFullProcessingCli {
             return EXIT_INVALID_INPUT;
         }
 
+        final HardwareExecutionProfile hardwareProfile;
+        try {
+            hardwareProfile = HardwareExecutionProfile.resolveFromEnvironment();
+        } catch (final IllegalArgumentException ex) {
+            System.err.println("ERROR: invalid hardware profile: " + ex.getMessage());
+            return EXIT_INVALID_INPUT;
+        }
+
         final BatchPrecheckSupervisor.ManifestRow row;
         try {
             final Path manifest = batchRoot.resolve(BatchManifestSchema.DIR_MACHINES)
@@ -243,7 +251,8 @@ public final class BatchFullProcessingCli {
                     batchRoot, machineId, imageId, configPath, classifierPath,
                     fijiLauncher, tileProfileIndex, config, row, source, sourceSha, classifierSha,
                     tileProfile, datasetRoot, attemptNumber, attemptRoot,
-                    precheckResultPath, precheckCsvPath, overallStarted, launcher);
+                    precheckResultPath, precheckCsvPath, overallStarted, launcher,
+                    hardwareProfile);
         } catch (final LinkageError err) {
             System.err.println("ERROR: parent linkage failure: " + err);
             final BatchFullProcessingResult failure = BatchFullProcessingResult.builder()
@@ -290,7 +299,8 @@ public final class BatchFullProcessingCli {
             final Path precheckResultPath,
             final Path precheckCsvPath,
             final long overallStarted,
-            final ProcessLauncher launcher) {
+            final ProcessLauncher launcher,
+            final HardwareExecutionProfile hardwareProfile) {
         // --- Canonical dataset inspection before any Fiji launch. ---
         final BatchProductionOutputValidator.FinalizedDatasetInspection finalized =
                 BatchProductionOutputValidator.inspectFinalizedDataset(
@@ -351,7 +361,7 @@ public final class BatchFullProcessingCli {
                 classificationJob.write(classificationJobPath);
                 outcome = launchStage(launcher, fijiLauncher, classificationJobPath,
                         classificationJob, classificationStdout, classificationStderr,
-                        config.fullTimeoutMinutes());
+                        config.fullTimeoutMinutes(), hardwareProfile);
             } catch (final Exception ex) {
                 System.err.println("ERROR: failed creating classification job: " + ex.getMessage());
                 outcome = StageOutcome.notLaunched();
@@ -378,7 +388,7 @@ public final class BatchFullProcessingCli {
             reconstructionJob.write(reconstructionJobPath);
             reconstruction = launchStage(launcher, fijiLauncher, reconstructionJobPath,
                     reconstructionJob, reconstructionStdout, reconstructionStderr,
-                    config.fullTimeoutMinutes());
+                    config.fullTimeoutMinutes(), hardwareProfile);
         } catch (final Exception ex) {
             System.err.println("ERROR: failed creating reconstruction job: " + ex.getMessage());
             reconstruction = StageOutcome.notLaunched();
@@ -476,8 +486,9 @@ public final class BatchFullProcessingCli {
             final BatchFullProcessingJob writtenJob,
             final Path stdoutPath,
             final Path stderrPath,
-            final long timeoutMinutes) {
-        final List<String> command = buildFijiCommand(fijiLauncher, jobPath);
+            final long timeoutMinutes,
+            final HardwareExecutionProfile hardwareProfile) {
+        final List<String> command = buildFijiCommand(fijiLauncher, jobPath, hardwareProfile);
         final Process process;
         try {
             process = launcher.start(command);
@@ -910,8 +921,18 @@ public final class BatchFullProcessingCli {
     }
 
     public static List<String> buildFijiCommand(final Path fijiLauncher, final Path jobPath) {
+        return buildFijiCommand(fijiLauncher, jobPath, null);
+    }
+
+    public static List<String> buildFijiCommand(
+            final Path fijiLauncher,
+            final Path jobPath,
+            final HardwareExecutionProfile hardwareProfile) {
         final List<String> command = new ArrayList<String>();
         command.add(fijiLauncher.toAbsolutePath().normalize().toString());
+        if (hardwareProfile != null) {
+            command.addAll(hardwareProfile.fijiHeapArguments());
+        }
         command.add("--headless");
         command.add("--no-splash");
         command.add("--allow-multiple");

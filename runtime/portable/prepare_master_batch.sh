@@ -3,7 +3,10 @@
 # No TIFF copies, no Fiji processing.
 #
 # Usage:
-#   ./prepare_master_batch.sh <all-tiffs-input-root> <portable-job-root> <machine-count>
+#   ./prepare_master_batch.sh <all-tiffs-input-root> <portable-job-root> [machine-count]
+#
+# machine-count defaults to 1. Production assigns every TIFF to one analysis
+# host (machine_01). Values other than 1 are rejected.
 #
 set -euo pipefail
 
@@ -198,12 +201,13 @@ fail() {
 
 usage() {
   cat >&2 <<'EOF'
-Usage: ./prepare_master_batch.sh <all-tiffs-input-root> <portable-job-root> <machine-count>
+Usage: ./prepare_master_batch.sh <all-tiffs-input-root> <portable-job-root> [machine-count]
 
-Creates one authoritative central batch plan for laboratory distribution.
+Creates one authoritative central batch plan for a single analysis host.
 Does not copy TIFFs, run Fiji, or process images.
 
-machine-count must be an integer from 1 through 99.
+machine-count defaults to 1 and must be 1. All production TIFFs are assigned
+to machine_01 (host identity). Physical multi-machine partitioning is not used.
 Production TIFF count is variable (PPTTCS identity, schema-2 manifests).
 EOF
 }
@@ -291,11 +295,15 @@ resolve_lumen_runtime() {
 
 validate_machine_count() {
   local count="$1"
-  if [[ ! "${count}" =~ ^[1-9][0-9]?$ ]] || [[ "${count}" -lt 1 || "${count}" -gt 99 ]]; then
+  if [[ ! "${count}" =~ ^[1-9][0-9]?$ ]]; then
     usage
-    fail "${EXIT_USAGE}" "Invalid machine-count '${count}'. Expected integer 1..99."
+    fail "${EXIT_USAGE}" "Invalid machine-count '${count}'. Single-machine production requires 1."
   fi
-  MACHINE_COUNT="${count}"
+  if [[ "${count}" -ne 1 ]]; then
+    fail "${EXIT_USAGE}" \
+      "Single-machine production requires machine-count=1 (one analysis host receives every TIFF). Received '${count}'. Physical multi-machine partitioning is not used."
+  fi
+  MACHINE_COUNT=1
 }
 
 write_production_config() {
@@ -599,12 +607,13 @@ print_success() {
   echo "TIFFs: ${MASTER_VALID_COUNT}"
   echo "first: ${MASTER_FIRST_ID}"
   echo "last: ${MASTER_LAST_ID}"
-  echo "machines: ${MACHINE_COUNT}"
+  echo "analysis host: $(machine_id_for_index 1)"
+  echo "physical machines required: 1"
   echo
   for ((i = 1; i <= MACHINE_COUNT; i++)); do
     mid="$(machine_id_for_index "${i}")"
     local count_var="MACHINE_COUNT_${i}"
-    echo "${mid}: ${!count_var}"
+    echo "${mid}: ${!count_var} (all assigned TIFFs)"
   done
   echo
   echo "job root: ${JOB_ROOT}"
@@ -624,9 +633,12 @@ main() {
 
   trap on_exit EXIT
 
-  if [[ "$#" -ne 3 ]]; then
+  local machine_count_arg=1
+  if [[ "$#" -eq 3 ]]; then
+    machine_count_arg="$3"
+  elif [[ "$#" -ne 2 ]]; then
     usage
-    fail "${EXIT_USAGE}" "Expected exactly 3 arguments"
+    fail "${EXIT_USAGE}" "Expected <input-root> <job-root> [machine-count]"
   fi
 
   require_cmd sha256sum
@@ -640,7 +652,7 @@ main() {
   require_cmd rm
   require_cmd mv
 
-  validate_machine_count "$3"
+  validate_machine_count "${machine_count_arg}"
   INPUT_ROOT="$(normalize_dir "$1" "input-root")"
   local requested_job="$2"
   if [[ -e "${requested_job}" ]]; then

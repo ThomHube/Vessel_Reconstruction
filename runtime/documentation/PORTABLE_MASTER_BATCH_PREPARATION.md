@@ -1,9 +1,9 @@
 # Portable Master Batch Preparation (Phase 4C4B1)
 
-Create **one** authoritative central batch plan on the preparation/master
-computer **before** the external drive is taken to laboratory PCs.
-
-Individual lab machines must **not** independently repartition the dataset.
+Create **one** authoritative central batch plan on the preparation computer
+for the **single analysis host**. Every production TIFF is assigned to
+`machine_01` (host identity). Individual hosts must **not** independently
+repartition the dataset.
 
 ## Usage
 
@@ -12,14 +12,16 @@ Requires an installed portable runtime at `$HOME/LumenRuntime/6dd42df`.
 ```bash
 ./prepare_master_batch.sh \
   <all-tiffs-input-root> \
-  <portable-job-root> \
-  <machine-count>
+  <portable-job-root>
 ```
+
+Optional third argument `machine-count` must be `1` if present. Values
+greater than 1 are rejected: physical multi-machine partitioning is not used.
 
 - `all-tiffs-input-root` — read-only source directory of production TIFFs
   (`tiffs/<segment_id>/<segment_id>.tif`; do not flatten)
 - `portable-job-root` — new job directory (must not already exist)
-- `machine-count` — integer `1` … `99`
+- `machine-count` — omitted or `1`
 
 ## Authoritative TIFF layout
 
@@ -42,7 +44,7 @@ machine import.
 
 1. Calls `run_lumen_machine.sh --verify-only` so portable controller classes exist.
 2. Writes `production_batch.properties` from `default_batch.properties`, setting
-   `machines.count=<N>`, forcing
+   `machines.count=1`, forcing
    `input.require_complete_expected_set=false` (PPTTCS has no fixed expected set),
    and forcing `input.recursive=true` for the nested production TIFF layout.
 3. Runs the existing `BatchManifestPlannerCli` with portable Java against the
@@ -66,8 +68,8 @@ Examples: `0101A1`, `0101A2`, `0101B1`, `0207B5`.
 
 Canonical order: plot ascending, tree ascending, core A before B, segment
 ascending. Segment `1` is closest to bark; higher numbers move toward pith/center.
-A physical core has 1–5 segments. All segments of one `core_id` stay on the same
-machine.
+A physical core has 1–5 segments. All TIFFs of the production run stay on the
+single analysis host (`machine_01`).
 
 Total TIFF count is **variable** (derived from the master manifest).
 `first_image_id` / `last_image_id` are the actual first/last canonical rows, not
@@ -113,11 +115,10 @@ They are intentionally **not** expected to be identical.
     batch_plan_report.txt
     machines/
       machine_01_manifest.csv
-      ...
 ```
 
-The exact `production_batch.properties` and manifests are authoritative. Each lab
-machine will later receive only its assigned TIFFs plus this plan/config
+The exact `production_batch.properties` and manifests are authoritative. The
+single analysis host later receives **all** assigned TIFFs plus this plan/config
 (unchanged config SHA-256 must match manifest rows).
 
 ## Intentionally not done yet

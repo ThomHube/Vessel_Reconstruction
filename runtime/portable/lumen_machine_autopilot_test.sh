@@ -770,7 +770,8 @@ test_20_bash_n_scripts() {
     "${PORTABLE}/run_lumen_machine.sh" \
     "${PORTABLE}/start_lumen_processing.sh" \
     "${PORTABLE}/monitor_lumen_machine.sh" \
-    "${PORTABLE}/prepare_master_batch.sh"
+    "${PORTABLE}/prepare_master_batch.sh" \
+    "${PORTABLE}/single_machine_production_test.sh"
   do
     bash -n "${s}"
   done

@@ -40,6 +40,7 @@ does **not** launch, stop, or restart processing.
 ```text
 LUMEN MACHINE STATUS
 machine: machine_01
+execution: one analysis host
 state: RUNNING
 persisted status: MACHINE_SUCCESS
 overall: 3 / 10 complete (30.0%)

@@ -70,6 +70,7 @@ class BatchMachineAssignmentTest {
                 BatchMachineAssignment.assign(files, 1);
         assertEquals(1, slices.size());
         assertEquals(4, slices.get(0).assignedCount());
+        assertEquals(HardwareExecutionProfile.PRODUCTION_MACHINE_ID, slices.get(0).machineId());
         assertEquals("0101A1", slices.get(0).files().get(0).id().imageId());
         assertEquals("0102A1", slices.get(0).files().get(3).id().imageId());
     }
